@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no">
+  <title>CesiumJS Geospatial Visualization</title>
+  <script src="https://cdn.jsdelivr.net/npm/cesium@latest/Build/Cesium/Cesium.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/cesium@latest/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+  <link href="style.css" rel="stylesheet">
+</head>
+<body>
+
+  <div id="appContainer">
+    <div id="cesiumContainer"></div>
+
+    <div id="uiControls">
+      <!-- Camera Controls Section -->
+      <h4 id="controlsTitle" style="cursor: pointer;">Camera Controls ▾</h4>
+
+      <div id="cameraControlsContent">
+
+          <label>Pitch:</label>
+          <input type="range" id="pitchSlider" min="-90" max="0" value="-30" step="1">
+          <span id="pitchValue">-30</span>°<br>
+          
+          <label>Heading:</label>
+          <input type="range" id="headingSlider" min="0" max="360" value="0" step="1">
+          <span id="headingValue">0</span>°<br>
+          
+          <label>Height:</label>
+          <span id="heightValue">--</span> m<br>
+
+          <label>Current Latitude:</label>
+          <span id="centerLat">--</span>°<br>
+          
+          <label>Current Longitude:</label>
+          <span id="centerLon">--</span>°<br>
+      </div>
+
+      <!-- A little spacing between sections -->
+      <div style="margin-top: 20px;"></div>
+      
+      <!-- Sequence Design Section -->
+      <h4 id="sequenceTitle">Sequence Design</h4>
+      <button id="sequenceButton">Start Sequence</button>
+    </div>
+  </div> <div id="legendDiv">
+      <h4 id="legendTitle">Legend</h4>
+      </div>
+
+      <script src="app.js"></script>
+
+</body>
+</html>

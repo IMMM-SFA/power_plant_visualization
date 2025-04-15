@@ -1,0 +1,201 @@
+/* style.css */
+/* Layout: Map on left, Controls sidebar on right, Legend top-left overlay */
+
+/* Basic reset and full-screen setup */
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* Prevent scrollbars on the body */
+  font-family: sans-serif; /* Basic font setting */
+}
+
+/* New App Container using Flexbox */
+#appContainer {
+  display: flex; /* Enable Flexbox */
+  width: 100%;
+  height: 100%;
+}
+
+/* Map container takes up remaining space */
+#cesiumContainer {
+  flex-grow: 1; /* Allow map to grow and fill available space */
+  height: 100%; /* Fill vertical space */
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  position: relative; /* Set as positioning context for absolutely positioned children if needed */
+}
+
+/* UI Controls act as the fixed-width sidebar */
+#uiControls {
+  /* Removed absolute positioning properties */
+  width: 300px; /* Fixed width for the sidebar */
+  flex-shrink: 0; /* Prevent sidebar from shrinking */
+  height: 100%; /* Fill vertical space */
+  overflow-y: auto; /* Add scrollbar if content overflows vertically */
+  padding: 15px;
+  background-color: rgba(40, 40, 40, 0.9); /* Darker semi-transparent background */
+  color: #ffffff; /* White text */
+  box-shadow: -2px 0 5px rgba(0, 0, 0, 0.2); /* Shadow on the left edge */
+  z-index: 5; /* Above map, below legend overlay */
+  font-size: 14px;
+  box-sizing: border-box; /* Include padding in width calculation */
+}
+
+/* Heading style within sidebar */
+#uiControls #controlsTitle {
+  margin-top: 0;
+  margin-bottom: 15px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid #555;
+  font-size: 16px;
+  text-align: center;
+}
+
+#uiControls #sequenceTitle {
+  margin-top: 20px; /* Extra space above the Sequence Design title */
+  margin-bottom: 15px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid #555;
+  font-size: 16px;
+  text-align: center;
+}
+
+/* Styles for controls inside the sidebar */
+#uiControls label {
+  display: inline-block;
+  width: 65px; /* Align labels */
+  margin-bottom: 10px;
+  vertical-align: middle;
+}
+
+#uiControls input[type="range"] {
+  width: calc(100% - 130px); /* Adjust width considering label and value span */
+  vertical-align: middle;
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+
+#uiControls span {
+  display: inline-block;
+  width: 40px; /* Space for value display */
+  text-align: right;
+  margin-left: 5px;
+  vertical-align: middle;
+  font-family: monospace; /* Monospaced font for numbers */
+  font-weight: bold;
+}
+
+#uiControls button {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  margin-top: 10px;
+  background-color: #4a4a4a;
+  color: white;
+  border: 1px solid #666;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s ease;
+}
+
+#uiControls button:hover {
+  background-color: #5a5a5a;
+}
+
+#uiControls button:active {
+  background-color: #3a3a3a;
+}
+
+
+/* Legend remains absolutely positioned (Top-Left) */
+#legendDiv {
+  position: absolute;
+  top: 15px;
+  left: 15px;
+  width: 250px; /* Adjust width as needed */
+  max-height: 300px; /* Limit height and make it scrollable */
+  overflow-y: auto;
+  padding: 15px;
+  background-color: rgba(40, 40, 40, 0.8); /* Slightly more transparent than controls */
+  color: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  z-index: 10; /* Highest z-index to be on top */
+  font-size: 13px;
+}
+
+/* Styles for legend content */
+#legendDiv h4 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid #555;
+  font-size: 15px;
+  text-align: center;
+}
+
+#legendDiv div { /* Style for each legend item row */
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+}
+
+#legendDiv div > * { /* Space between symbol and text */
+  margin-right: 8px;
+}
+
+#legendDiv div > *:last-child {
+  margin-right: 0;
+}
+
+/* Example style for a legend symbol using a div */
+.legend-symbol {
+  width: 15px;
+  height: 15px;
+  display: inline-block;
+  border: 1px solid #ccc; /* Optional border for clarity */
+  flex-shrink: 0; /* Prevent symbol from shrinking */
+}
+
+/* Example style for a legend symbol using an img */
+.legend-symbol-img {
+    width: 15px;
+    height: 15px;
+    vertical-align: middle; /* Align image better if needed */
+    flex-shrink: 0;
+}
+
+/* Style for the text span within power plant legend items */
+#legendDiv .power-plant-legend-item span {
+  font-size: 24px;   /* Larger size */
+  /* font-weight: bold; /* Bold */
+  color: #ffffff;   /* Example color: Navajo White */
+}
+
+#heightValue {
+  display: inline-block;
+  min-width: 100px; /* Adjust as needed */
+  text-align: right;
+}
+
+#centerLat {
+  display: inline-block;
+  min-width: 100px; /* Adjust as needed */
+  text-align: right;
+}
+
+#centerLon {
+  display: inline-block;
+  min-width: 100px; /* Adjust as needed */
+  text-align: right;
+}
+
+/* hide elements */
+.collapsed {
+  display: none;
+}
