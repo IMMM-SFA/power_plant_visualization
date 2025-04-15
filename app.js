@@ -7,9 +7,11 @@ Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOi
 // --- Global variables ---
 let viewer;
 let legendTitleElement; // Variable to hold the legend title DOM element
+let doInitialStaging = true;
 let addSuitabilityLayers = true;
 let addPowerPlantLayers = true;
 let addTransmissionLines = true;
+let addModels = true;
 
 // --- UI Elements (Grabbed once) ---
 const legendDiv = document.getElementById('legendDiv');
@@ -23,6 +25,46 @@ const sequenceButton = document.getElementById("sequenceButton");
 
 // --- Legend Management ---
 const legendItems = {}; // Keep track of legend items by id
+
+
+// Register the material with Cesium's Material cache
+const animatedFlowingMaterial = new Cesium.Material({
+    fabric: {
+        type: Cesium.Material.FlowingDashMaterialType,
+        uniforms: {
+            baseColor: new Cesium.Color(0.0, 0.5, 0.8, 0.5), // Semi-transparent blue (base)
+            flowColor: new Cesium.Color(1.0, 1.0, 1.0, 1.0),   // White for the dash
+            speed: 2.0,        // Speed of animation (adjust as needed)
+            dashLength: 0.15,  // Relative length of the dash
+            repeat: 240.0,       // Number of dash cycles along the line
+            time: new Cesium.CallbackProperty(() => {
+                return performance.now() / 1000.0;
+            }, false)
+        },
+        source: `
+            czm_material czm_getMaterial(czm_materialInput materialInput)
+            {
+                czm_material material = czm_getDefaultMaterial(materialInput);
+                float s = materialInput.s;
+                float t = uniforms.time;
+                // Compute the repeating pattern that shifts over time.
+                float patternPosition = fract(s * uniforms.repeat - t * uniforms.speed);
+                vec4 base = uniforms.baseColor;
+                vec4 flow = uniforms.flowColor;
+                float dash = uniforms.dashLength;
+                float stepWidth = 0.01;
+                // Create smooth edges for the dash.
+                float mixFactor = smoothstep(0.0, stepWidth, patternPosition) - 
+                                  smoothstep(dash - stepWidth, dash, patternPosition);
+                vec4 finalColor = mix(base, flow, mixFactor);
+                material.diffuse = finalColor.rgb;
+                material.alpha = finalColor.a;
+                return material;
+            }
+        `
+    },
+    translucent: true
+});
 
 function addLegendItem(id, title, symbolHtml, clearLegendItems = false) {
     if (!legendItems[id]) {
@@ -74,16 +116,6 @@ function clearSequenceGraphics(viewerInstance) {
 
     // Clear all legend items currently tracked
     const allLegendIds = Object.keys(legendItems);
-    // allLegendIds.forEach(id => {
-    //     if (id !== 'transmission_clipped') {
-    //         removeLegendItem(id);
-    //     }
-    // });
-
-    // Reset legend title (can also be set later)
-    // if (legendTitleElement) {
-    //     legendTitleElement.textContent = "Legend"; // Reset to default or leave blank
-    // }
 
     // Remove DataSources (update with ALL relevant IDs used in your sequence)
     const layerIds = [
@@ -111,101 +143,18 @@ function clearSequenceGraphics(viewerInstance) {
             // console.log(`No DataSource found with name: ${id}`); // Optional log
         }
     });
-
-    // // Remove specific entities if needed (e.g., previous models, lines)
-    // const entityIdsPattern = ['powerPlantModel-'];
-    // const entitiesToRemove = viewerInstance.entities.values.filter(entity =>
-    //     entityIdsPattern.some(pattern => (entity.id && entity.id.startsWith(pattern)) || entity.name === pattern)
-    // );
-    // entitiesToRemove.forEach(entity => {
-    //     console.log(`Removing Entity: ${entity.id || entity.name}`);
-    //     viewerInstance.entities.remove(entity);
-    // });
-
 }
 
-// --- Animated Flowing Material Definition ---
-/**
- * Creates a Cesium Material that simulates a flowing dash along a polyline.
- * Uses Cesium Fabric and GLSL.
- */
 const flowingMaterial = new Cesium.Material({
     fabric: {
-        type: 'FlowingDashMaterial', // Give your material a unique type name
-        uniforms: {
-            // Base color of the line when the "flow" isn't visible
-            baseColor: new Cesium.Color(0.0, 0.5, 0.8, 0.5), // Example: Semi-transparent blue
-
-            // Color of the moving dash/pulse representing the flow
-            flowColor: new Cesium.Color(1.0, 1.0, 1.0, 1.0), // Example: Bright white
-
-            // Speed of the animation (higher is faster)
-            speed: 10.0,
-
-            // Length of the moving dash relative to the repeat cycle (0.0 to 1.0)
-            dashLength: 0.15,
-            
-            // Number of dash+gap cycles visible along the entire polyline length
-            repeat: 6.0
-        },
-        source: `
-            // GLSL source code for the material fragment shader
-            czm_material czm_getMaterial(czm_materialInput materialInput) {
-                // Get the default material appearance
-                czm_material material = czm_getDefaultMaterial(materialInput);
-
-                // Get the normalized distance along the polyline (0.0 at start, 1.0 at end)
-                float s = materialInput.s;
-
-                // Calculate a time value that increases continuously.
-                // czm_frameNumber is simple but frame-rate dependent.
-                // For more consistent speed, consider using a CallbackProperty
-                // to update a custom time uniform based on viewer.clock.currentTime.
-                // Speed uniform scales the time effect.
-                float time = czm_frameNumber * uniforms.speed / 1000.0;
-
-                // Calculate the position within the repeating pattern (loops 0 to 1)
-                // Multiply 's' by 'repeat' to make the pattern repeat along the line.
-                // Subtract 'time' to make the pattern appear to move.
-                float patternPosition = fract(s * uniforms.repeat - time);
-
-                // Get uniform values
-                vec4 base = uniforms.baseColor;
-                vec4 flow = uniforms.flowColor;
-                float dash = uniforms.dashLength;
-
-                // Determine the mix factor between base and flow color
-                // Use smoothstep for slightly softer edges on the dash
-                float stepWidth = 0.01; // Adjust for sharper/softer edges
-                float mixFactor = smoothstep(0.0, stepWidth, patternPosition) - smoothstep(dash - stepWidth, dash, patternPosition);
-
-                // Alternative: Hard step for sharp-edged dash:
-                // float mixFactor = step(patternPosition, dash); // 1.0 if inside dash, 0.0 otherwise
-
-                // Mix the base color and the flow color
-                vec4 finalColor = mix(base, flow, mixFactor);
-
-                // Assign the final color to the material's diffuse and alpha channels
-                material.diffuse = finalColor.rgb;
-                material.alpha = finalColor.a;
-
-                return material;
-            }
-        `
-    },
-    // Important: Set translucent based on if *any* of your colors use alpha < 1.0
-    translucent: function(material) {
-        // Return true if either base or flow color is not fully opaque
-        return material.uniforms.baseColor.alpha < 1.0 || material.uniforms.flowColor.alpha < 1.0;
+        type: Cesium.Material.FlowingDashMaterialType
     }
 });
-
-
 
 // --- Core CesiumJS Initialization (Async Function) ---
 async function startCesium() {
     try {
-        console.log("Initializing Cesium Viewer...");
+        // console.log("Initializing Cesium Viewer...");
 
         viewer = new Cesium.Viewer('cesiumContainer', {
             // Use Cesium World Terrain via Ion Asset ID (Asset 1) - ENABLED
@@ -260,6 +209,10 @@ async function startCesium() {
                 document.getElementById("centerLat").textContent = centerLatDegrees;
                 document.getElementById("centerLon").textContent = centerLonDegrees;
             }
+
+            // Update our flowing material time uniform based on performance.now()
+            // (Divide by 1000 to convert milliseconds to seconds)
+            flowingMaterial.uniforms.time = performance.now() / 1000.0;
         });
 
         // --- Get Legend Title Element Reference ---
@@ -362,9 +315,10 @@ async function startCesium() {
             console.log("Run Sequence button clicked.");
 
             try {
-                // console.log(`Flying to ROI before starting sequence (Lon: ${roiLon}, Lat: ${roiLat}, Height: ${roiHeight}m)`);
-                await flyToLocation(viewer, roiLon, roiLat, roiHeight); // Wait for flight
-        
+                if (doInitialStaging) {
+                    await flyToLocation(viewer, roiLon, roiLat, roiHeight); // Wait for flight
+                }
+
                 // Clear sequence graphics if needed
                 clearSequenceGraphics(viewer);
 
@@ -556,7 +510,7 @@ async function runSequence(viewerInstance, baseLon, baseLat) {
         } else {
             console.log("Transmission lines layer failed to load.");
         }
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Pause after loading lines
+        await new Promise(resolve => setTimeout(resolve, 0)); // Pause after loading lines
     }
 
     // --------------------------------------------------------------------------------
@@ -653,153 +607,363 @@ async function runSequence(viewerInstance, baseLon, baseLat) {
     // 4. ADD 3D MODEL
     // --------------------------------------------------------------------------------
 
-    // Clear layers
-    clearSequenceGraphics(viewerInstance); // Call the clearing function
-    await new Promise(resolve => setTimeout(resolve, 500)); // Optional short pause after clearing
+    if (addModels) {
+        // Clear layers
+        clearSequenceGraphics(viewerInstance); // Call the clearing function
+        await new Promise(resolve => setTimeout(resolve, 500)); // Optional short pause after clearing
 
-    // Set new legend title for the model phase
-    if (legendTitleElement) {
-        legendTitleElement.textContent = "Build Power Plant"; // Or leave blank: ""
+        // Set new legend title for the model phase
+        if (legendTitleElement) {
+            legendTitleElement.textContent = "Build Power Plant"; // Or leave blank: ""
+        }
+
+        // --- === ADD 3D GLB MODEL === ---
+        // console.log("Adding 3D power plant model...");
+        const modelLon = -110.55166;
+        const modelLat = 41.31584;
+        const modelHeight = 2316; // meters
+        const modelPitch = -22.0;
+        const modelHeading = 199.0;
+        const modelPath = './data/models/gas_plant_v3.glb'; // Ensure this path is correct
+        const modelEntityId = 'powerPlantModel-main';
+
+        const modelLonOffset = 0.0015
+        const modelLatOffset = 0.0035
+
+        // Define position (Lon, Lat, Height=0 - will be adjusted by heightReference)
+        const modelPosition = Cesium.Cartesian3.fromDegrees(modelLon, modelLat);
+
+        // Remove any previous model entity
+        viewer.entities.removeById(modelEntityId);
+
+        // Add the new model entity with an initial transparent tint:
+        const modelEntity0 = viewer.entities.add({
+            id: 'powerPlantModel-main_0',
+            name: 'Gas Power Plant Model',
+            position: modelPosition,
+            model: {
+                uri: './data/models/gas_plant_build0.glb',
+                scale: 2.0, // Adjust as needed
+                minimumPixelSize: 64,
+                maximumScale: 20000,
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                // Set initial tint to fully transparent
+                color: Cesium.Color.WHITE.withAlpha(0)
+            }
+        });
+
+        const modelEntity1 = viewer.entities.add({
+            id: 'powerPlantModel-main_1',
+            name: 'Gas Power Plant Model',
+            position: modelPosition,
+            model: {
+                uri: './data/models/gas_plant_build1.glb',
+                scale: 2.0, // Adjust as needed
+                minimumPixelSize: 64,
+                maximumScale: 20000,
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                // Set initial tint to fully transparent
+                color: Cesium.Color.WHITE.withAlpha(0)
+            }
+        });
+
+        const modelEntity2 = viewer.entities.add({
+            id: 'powerPlantModel-main_2',
+            name: 'Gas Power Plant Model',
+            position: modelPosition,
+            model: {
+                uri: './data/models/gas_plant_build2.glb',
+                scale: 2.0, // Adjust as needed
+                minimumPixelSize: 64,
+                maximumScale: 20000,
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                // Set initial tint to fully transparent
+                color: Cesium.Color.WHITE.withAlpha(0)
+            }
+        });
+
+        const modelEntity3 = viewer.entities.add({
+            id: 'powerPlantModel-main_3',
+            name: 'Gas Power Plant Model',
+            position: modelPosition,
+            model: {
+                uri: './data/models/gas_plant_build3.glb',
+                scale: 2.0, // Adjust as needed
+                minimumPixelSize: 64,
+                maximumScale: 20000,
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                // Set initial tint to fully transparent
+                color: Cesium.Color.WHITE.withAlpha(0)
+            }
+        });
+
+        const modelEntity4 = viewer.entities.add({
+            id: 'powerPlantModel-main_4',
+            name: 'Gas Power Plant Model',
+            position: modelPosition,
+            model: {
+                uri: './data/models/gas_plant_build4.glb',
+                scale: 2.0, // Adjust as needed
+                minimumPixelSize: 64,
+                maximumScale: 20000,
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                // Set initial tint to fully transparent
+                color: Cesium.Color.WHITE.withAlpha(0)
+            }
+        });
+
+        // Add the new model entity with an initial transparent tint:
+        const modelEntity5 = viewer.entities.add({
+            id: 'powerPlantModel-main_5',
+            name: 'Gas Power Plant Model',
+            position: modelPosition,
+            model: {
+                uri: './data/models/gas_plant_v3.glb',
+                scale: 2.0, // Adjust as needed
+                minimumPixelSize: 64,
+                maximumScale: 20000,
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                // Set initial tint to fully transparent
+                color: Cesium.Color.WHITE.withAlpha(0)
+            }
+        });
+
+        // Use the flyToLocation wrapper
+        try {
+            await flyToLocation(
+                viewerInstance, 
+                modelLon + modelLonOffset, 
+                modelLat + modelLatOffset,
+                modelHeight, 
+                modelHeading, 
+                modelPitch, 
+                5.0
+            );
+            // Once fly-to completes, fade in the model gradually
+            fadeInModel(modelEntity0, 1510000);
+            await new Promise(resolve => setTimeout(resolve, 2500));
+            
+            fadeInModel(modelEntity1, 100);
+            await new Promise(resolve => setTimeout(resolve, 2500));
+
+            fadeInModel(modelEntity2, 100);
+            await new Promise(resolve => setTimeout(resolve, 2500));
+
+            fadeInModel(modelEntity3, 100);
+            await new Promise(resolve => setTimeout(resolve, 2500));
+
+            fadeInModel(modelEntity4, 100);
+            await new Promise(resolve => setTimeout(resolve, 2500));
+
+            fadeInModel(modelEntity5, 1500);
+
+        } catch (error) {
+            console.error("Error during fly-to:", error);
+        }
     }
-
-    // --- === ADD 3D GLB MODEL === ---
-    // console.log("Adding 3D power plant model...");
-    const modelLon = -110.55166;
-    const modelLat = 41.31584;
-    const modelHeight = 2316; // meters
-    const modelPitch = -22.0;
-    const modelHeading = 199.0;
-    const modelPath = './data/models/gas_plant_clean.glb'; // Ensure this path is correct
-    const modelEntityId = 'powerPlantModel-main';
-
-    const modelLonOffset = 0.0015
-    const modelLatOffset = 0.0035
-
-    // Define position (Lon, Lat, Height=0 - will be adjusted by heightReference)
-    const modelPosition = Cesium.Cartesian3.fromDegrees(modelLon, modelLat);
-
-    // Remove any previous model entity
-    viewer.entities.removeById(modelEntityId);
-
-    // Add the new model entity with an initial transparent tint:
-    const modelEntity = viewer.entities.add({
-    id: modelEntityId,
-    name: 'Gas Power Plant Model',
-    position: modelPosition,
-    model: {
-        uri: modelPath,
-        scale: 2.0, // Adjust as needed
-        minimumPixelSize: 64,
-        maximumScale: 20000,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-        // Set initial tint to fully transparent
-        color: Cesium.Color.WHITE.withAlpha(0)
-    }
-    });
-
-    // Use the flyToLocation wrapper
-    try {
-        await flyToLocation(
-            viewerInstance, 
-            modelLon + modelLonOffset, 
-            modelLat + modelLatOffset,
-            modelHeight, 
-            modelHeading, 
-            modelPitch, 
-            5.0
-        );
-        // Once fly-to completes, fade in the model gradually
-        fadeInModel(modelEntity, 1500);
-    } catch (error) {
-        console.error("Error during fly-to:", error);
-    }
-
     // --------------------------------------------------------------------------------
     // 5. ADD TRANSMISSION CONNECTOR LINE
     // --------------------------------------------------------------------------------
+    await new Promise(resolve => setTimeout(resolve, 2500));
+
+    // Set new legend title for the model phase
+    if (legendTitleElement) {
+        legendTitleElement.textContent = "Connect to Grid"; // Or leave blank: ""
+    }
 
     // Ensure you have access to your 'viewer' instance here
     if (typeof viewer !== 'undefined' && viewer) {
 
-        // --- Input Coordinates (WGS84 Degrees) ---
-        const fromLatDeg = 41.3161;
-        const fromLonDeg = -110.55550;
-        const toLatDeg   = 41.262497;   
-        const toLonDeg   = -110.566656;  
+        // RIGHT of tower
+        const fromLatDeg = 41.317205;
+        const fromLonDeg = -110.553498; 
+        const toLatDeg   = 41.305885;
+        const toLonDeg   = -110.553589;
+        const desiredHeightMeters = 2262.5; 
 
-        const desiredHeightMeters = 2245.0; // Height in meters (carried over from previous request)
+        await flyToLocation(
+            viewerInstance, 
+            -110.553675, 
+            41.318206,
+            2296, 
+            156, 
+            -23, 
+            5.0
+        );
 
-        // if (typeof toLonDeg !== 'undefined' && typeof toLatDeg !== 'undefined') {
-        const connectionLine = viewer.entities.add({
-            name: `Transmission Connector (Flowing, ${desiredHeightMeters}m high)`, // Updated name
+        const connectionLineTopLeft = viewer.entities.add({
+            name: `Transmission Connector (Glowing, ${desiredHeightMeters}m high)`,
             polyline: {
                 positions: Cesium.Cartesian3.fromDegreesArrayHeights([
-                    fromLonDeg, fromLatDeg, desiredHeightMeters, // Point 1 (lon, lat, height)
-                    toLonDeg,   toLatDeg,   desiredHeightMeters  // Point 2 (lon, lat, height)
+                    -110.553352, 41.317205, desiredHeightMeters,
+                    toLonDeg,   toLatDeg,   desiredHeightMeters
                 ]),
-                // Increase width slightly? Makes the effect more visible.
-                width: 7,
-
-                // *** Use the custom animated material ***
-                material: flowingMaterial,
-
-                // --- Keep other properties as needed ---
+                width: 4,
+                material: new Cesium.PolylineGlowMaterialProperty({
+                    glowPower: new Cesium.CallbackProperty(function() {
+                        // Get the current time in seconds
+                        const time = performance.now() / 1000.0;
+                        // Define the min and max glowPower values
+                        const minGlow = 0.2;
+                        const maxGlow = 1.0;
+                        // Oscillate between minGlow and maxGlow using a sine wave.
+                        // The sine value oscillates between -1 and 1, so transform it to 0-1.
+                        let oscillation = (Math.sin(time * Math.PI * 2) + 1) / 2;
+                        return minGlow + oscillation * (maxGlow - minGlow);
+                    }, false),
+                    color: Cesium.Color.RED.withAlpha(0.7)
+                }),
                 heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
                 clampToGround: false,
                 arcType: Cesium.ArcType.GEODESIC
             }
         });
 
-        // viewer.flyTo(connectionLine);
+        const connectionLineMidLeft = viewer.entities.add({
+            name: `Transmission Connector (Glowing, ${desiredHeightMeters}m high)`,
+            polyline: {
+                positions: Cesium.Cartesian3.fromDegreesArrayHeights([
+                    -110.553335, 41.317204, desiredHeightMeters - 7.5,
+                    toLonDeg,   toLatDeg,   desiredHeightMeters - 7.5
+                ]),
+                width: 4,
+                material: new Cesium.PolylineGlowMaterialProperty({
+                    glowPower: new Cesium.CallbackProperty(function() {
+                        // Get the current time in seconds
+                        const time = performance.now() / 1000.0;
+                        // Define the min and max glowPower values
+                        const minGlow = 0.2;
+                        const maxGlow = 1.0;
+                        // Oscillate between minGlow and maxGlow using a sine wave.
+                        // The sine value oscillates between -1 and 1, so transform it to 0-1.
+                        let oscillation = (Math.sin(time * Math.PI * 2) + 1) / 2;
+                        return minGlow + oscillation * (maxGlow - minGlow);
+                    }, false),
+                    color: Cesium.Color.RED.withAlpha(0.7)
+                }),
+                heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+                clampToGround: false,
+                arcType: Cesium.ArcType.GEODESIC
+            }
+        });
 
-        // }
+        const connectionLineBottomLeft = viewer.entities.add({
+            name: `Transmission Connector (Glowing, ${desiredHeightMeters}m high)`,
+            polyline: {
+                positions: Cesium.Cartesian3.fromDegreesArrayHeights([
+                    -110.5533506, 41.317204, desiredHeightMeters - 14.5,
+                    toLonDeg,   toLatDeg,   desiredHeightMeters - 14.5
+                ]),
+                width: 4,
+                material: new Cesium.PolylineGlowMaterialProperty({
+                    glowPower: new Cesium.CallbackProperty(function() {
+                        // Get the current time in seconds
+                        const time = performance.now() / 1000.0;
+                        // Define the min and max glowPower values
+                        const minGlow = 0.2;
+                        const maxGlow = 1.0;
+                        // Oscillate between minGlow and maxGlow using a sine wave.
+                        // The sine value oscillates between -1 and 1, so transform it to 0-1.
+                        let oscillation = (Math.sin(time * Math.PI * 2) + 1) / 2;
+                        return minGlow + oscillation * (maxGlow - minGlow);
+                    }, false),
+                    color: Cesium.Color.RED.withAlpha(0.7)
+                }),
+                heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+                clampToGround: false,
+                arcType: Cesium.ArcType.GEODESIC
+            }
+        });
 
+        const connectionLineTopRight = viewer.entities.add({
+            name: `Transmission Connector (Glowing, ${desiredHeightMeters}m high)`,
+            polyline: {
+                positions: Cesium.Cartesian3.fromDegreesArrayHeights([
+                    fromLonDeg, fromLatDeg, desiredHeightMeters,
+                    toLonDeg,   toLatDeg,   desiredHeightMeters
+                ]),
+                width: 4,
+                material: new Cesium.PolylineGlowMaterialProperty({
+                    glowPower: new Cesium.CallbackProperty(function() {
+                        // Get the current time in seconds
+                        const time = performance.now() / 1000.0;
+                        // Define the min and max glowPower values
+                        const minGlow = 0.2;
+                        const maxGlow = 1.0;
+                        // Oscillate between minGlow and maxGlow using a sine wave.
+                        // The sine value oscillates between -1 and 1, so transform it to 0-1.
+                        let oscillation = (Math.sin(time * Math.PI * 2) + 1) / 2;
+                        return minGlow + oscillation * (maxGlow - minGlow);
+                    }, false),
+                    color: Cesium.Color.RED.withAlpha(0.7)
+                }),
+                heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+                clampToGround: false,
+                arcType: Cesium.ArcType.GEODESIC
+            }
+        });
 
-        // // --- Create the Polyline Entity ---
-        // const connectionLineWGS84 = viewer.entities.add({
-        //     name: `Transmission Connector (${desiredHeightMeters}m high)`, // Descriptive name
-        //     polyline: {
-        //         // Use Cesium.Cartesian3.fromDegreesArrayHeights for lon, lat, height triples
-        //         positions: Cesium.Cartesian3.fromDegreesArrayHeights([
-        //             fromLonDeg, fromLatDeg, desiredHeightMeters, // Point 1 (lon, lat, height)
-        //             toLonDeg,   toLatDeg,   desiredHeightMeters  // Point 2 (lon, lat, height)
-        //         ]),
-        //         width: 5, // Width of the line in pixels
-        //         material: Cesium.Color.ORANGE, // You can change the color (e.g., Cesium.Color.BLUE)
+        const connectionLineMidRight = viewer.entities.add({
+            name: `Transmission Connector (Glowing, ${desiredHeightMeters}m high)`,
+            polyline: {
+                positions: Cesium.Cartesian3.fromDegreesArrayHeights([
+                    -110.553518, 41.317205, desiredHeightMeters - 7.5,
+                    toLonDeg,   toLatDeg,   desiredHeightMeters - 7.5
+                ]),
+                width: 4,
+                material: new Cesium.PolylineGlowMaterialProperty({
+                    glowPower: new Cesium.CallbackProperty(function() {
+                        // Get the current time in seconds
+                        const time = performance.now() / 1000.0;
+                        // Define the min and max glowPower values
+                        const minGlow = 0.2;
+                        const maxGlow = 1.0;
+                        // Oscillate between minGlow and maxGlow using a sine wave.
+                        // The sine value oscillates between -1 and 1, so transform it to 0-1.
+                        let oscillation = (Math.sin(time * Math.PI * 2) + 1) / 2;
+                        return minGlow + oscillation * (maxGlow - minGlow);
+                    }, false),
+                    color: Cesium.Color.RED.withAlpha(0.7)
+                }),
+                heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+                clampToGround: false,
+                arcType: Cesium.ArcType.GEODESIC
+            }
+        });
 
-        //         // --- How is the 100m height interpreted? ---
-
-        //         // Option 1: 100 meters RELATIVE TO GROUND (Default in this code)
-        //         // The line follows the terrain shape 100m above it.
-        //         heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
-
-        //         // Option 2: 100 meters ABSOLUTE (Above Ellipsoid)
-        //         // The line ignores terrain detail. Comment out the line above and uncomment below.
-        //         // heightReference: Cesium.HeightReference.NONE,
-
-        //         // IMPORTANT: clampToGround MUST be false when specifying height/heightReference
-        //         clampToGround: false,
-
-        //         // Optional: Define how the line curves on the globe. GEODESIC is good for raised lines.
-        //         arcType: Cesium.ArcType.GEODESIC
-        //     }
-        // });
-
-        // console.log(`WGS84 connection line entity added between (${fromLonDeg}, ${fromLatDeg}) and (${toLonDeg}, ${toLatDeg}) at ${desiredHeightMeters}m height.`);
-
-        // Optional: Fly the camera to view the newly added line
-        // viewer.flyTo(connectionLineWGS84).then(() => {
-        //    console.log("Finished flying to the WGS84 connection line.");
-        // });
+        const connectionLineBottomRight = viewer.entities.add({
+            name: `Transmission Connector (Glowing, ${desiredHeightMeters}m high)`,
+            polyline: {
+                positions: Cesium.Cartesian3.fromDegreesArrayHeights([
+                    -110.553496, 41.317205, desiredHeightMeters - 14.5,
+                    toLonDeg,   toLatDeg,   desiredHeightMeters - 14.5
+                ]),
+                width: 4,
+                material: new Cesium.PolylineGlowMaterialProperty({
+                    glowPower: new Cesium.CallbackProperty(function() {
+                        // Get the current time in seconds
+                        const time = performance.now() / 1000.0;
+                        // Define the min and max glowPower values
+                        const minGlow = 0.2;
+                        const maxGlow = 1.0;
+                        // Oscillate between minGlow and maxGlow using a sine wave.
+                        // The sine value oscillates between -1 and 1, so transform it to 0-1.
+                        let oscillation = (Math.sin(time * Math.PI * 2) + 1) / 2;
+                        return minGlow + oscillation * (maxGlow - minGlow);
+                    }, false),
+                    color: Cesium.Color.RED.withAlpha(0.7)
+                }),
+                heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+                clampToGround: false,
+                arcType: Cesium.ArcType.GEODESIC
+            }
+        });
 
     } else {
         console.error("Cesium viewer instance is not available. Cannot add polyline.");
     }
 
-
-
 }
-
 
 // --- Start the Application ---
 // Call the async function to initialize Cesium and set up the UI
