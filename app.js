@@ -401,7 +401,7 @@ function fadeInModel(modelEntity, duration) {
     requestAnimationFrame(update);
 }
 
-function changeLegendTitleFadeIn(newTitle, durationMs = 400) { // Duration for the fade-in part
+function changeLegendTitleFadeIn(newTitle, durationMs = 500) { // Duration for the fade-in part
     if (!legendTitleElement) {
         console.warn("Legend title element not found for animation.");
         return;
@@ -566,7 +566,7 @@ async function runSequence(viewerInstance, baseLon, baseLat) {
     if (addPowerPlantLayers) {
 
         // console.log("Transitioning to Power Plant phase...");
-        changeLegendTitleFadeIn("Projected Gas Plant Siting",   durationMs = 500)
+        changeLegendTitleFadeIn("Projected Gas Plant Siting")
 
         // remove suitability layers from legend
         const removeLayers = [...suitabilityLayerIds];
