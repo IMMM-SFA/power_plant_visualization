@@ -116,7 +116,7 @@ body {
   position: absolute;
   top: 15px;
   left: 15px;
-  width: 250px; /* Adjust width as needed */
+  width: 300px; /* Adjust width as needed */
   max-height: 300px; /* Limit height and make it scrollable */
   overflow-y: auto;
   padding: 15px;
@@ -171,9 +171,9 @@ body {
 
 /* Style for the text span within power plant legend items */
 #legendDiv .power-plant-legend-item span {
-  font-size: 24px;   /* Larger size */
-  /* font-weight: bold; /* Bold */
-  color: #ffffff;   /* Example color: Navajo White */
+  font-size: 24px !important;
+  /* font-weight: bold; */
+  color: #ffffff;
 }
 
 /* Legend title transition */
