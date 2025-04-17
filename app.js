@@ -35,11 +35,10 @@ const introPopup = document.createElement('div');
 introPopup.id = 'introPopup';
 introPopup.innerHTML = `
   <h1 style="margin:0; font-weight:bold; font-size:24px; color:white;">
-    Natural Gas Combined Cycle Power Plant Siting in Wyoming, USA
+    Projected locations of new natural gas combined cycle (recirculating cooling) power plants in Wyoming, USA (2020-2050)
   </h1>
   <p style="margin:8px 0 0; font-weight:400; font-size:18px; color:rgba(255,255,255,0.8);">
-    Projected power plants provided by the Capacity Expansion Regional Feasibility Model (CERF)
-    which is described at https://immm-sfa.github.io/cerf/
+    (CERF: Capacity Expansion Regional Feasibility model, https://immm-sfa.github.io/cerf/)
   </p>
 `;
 introPopup.style.cssText = `
@@ -632,7 +631,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
         );
 
         const airportVicinity = await addLayerSequentially(viewerInstance, () => Cesium.GeoJsonDataSource.load('./data/geojson/airports_clipped.geojson', polygonOptions), 'airports_clipped', 'Airport Vicinity', '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>');
-        const coolingWater = await addLayerSequentially(viewerInstance, () => Cesium.GeoJsonDataSource.load('./data/geojson/cooling_water_clipped.geojson', polygonOptions), 'cooling_water_clipped', 'Available Water', '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>');
+        const coolingWater = await addLayerSequentially(viewerInstance, () => Cesium.GeoJsonDataSource.load('./data/geojson/cooling_water_clipped.geojson', polygonOptions), 'cooling_water_clipped', 'Inadequate Cooling Water Supply', '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>');
         const protectedAreas = await addLayerSequentially(viewerInstance, () => Cesium.GeoJsonDataSource.load('./data/geojson/protected_areas_clipped.geojson', polygonOptions), 'protected_areas_clipped', 'Protected Area', '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>');
     } 
     
@@ -716,9 +715,20 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
 
                 // Apply styling to billboards
                 pptDataSource.entities.values.forEach(function(entity) {
+
+                    // Force every power‑plant point up to 3000 m
+                    const orig = entity.position.getValue(Cesium.JulianDate.now());
+                    const carto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(orig);
+                    const lon   = Cesium.Math.toDegrees(carto.longitude);
+                    const lat   = Cesium.Math.toDegrees(carto.latitude);
+                    const height = 5000; // meters - this ensures that the icon for the point floats above the model when in planform
+                    entity.position = new Cesium.ConstantPositionProperty(
+                    Cesium.Cartesian3.fromDegrees(lon, lat, height)
+                    );
+
                     if (Cesium.defined(entity.billboard)) { // Check if it's a billboard
                         entity.billboard.image = iconBase;
-                        entity.billboard.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
+                        entity.billboard.heightReference = Cesium.HeightReference.NONE;
                         entity.billboard.verticalOrigin = Cesium.VerticalOrigin.BOTTOM;
                         entity.billboard.scale = 0.02; // Using very small scale from user code
                         // entity.billboard.pixelOffset = new Cesium.Cartesian2(0, 6); // User had this commented out
@@ -796,11 +806,6 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
                 lon: -110.55166,                     // Model longitude
                 lat: 41.31584,                       // Model latitude
                 uris: [                              // Array of model URIs (stages of construction)
-                    './data/models/gas_plant_build0.glb',
-                    './data/models/gas_plant_build1.glb',
-                    './data/models/gas_plant_build2.glb',
-                    './data/models/gas_plant_build3.glb',
-                    './data/models/gas_plant_build4.glb',
                     './data/models/gas_plant_v3.glb'
                 ],
                 entityBaseId: 'powerPlantModel-main',  // Base ID for all model entities
@@ -817,7 +822,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
                 heading: 199,      // Camera heading (degrees)
                 lonOffset: 0.0015, // Optional longitude offset for camera target
                 latOffset: 0.0035, // Optional latitude offset for camera target
-                duration: 5.0      // Duration (seconds) for the fly-to flight
+                duration: 10.0      // Duration (seconds) for the fly-to flight
             },
             animation: {
                 delayForBuild: 2000,  // controls the time lag for the model to be build before adding color - prevents flashing
@@ -899,34 +904,11 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
         const desiredHeightMeters = 2262.5;
         const connectorLineWidth = 4;
 
-        // // Create the connector configuration using the named dictionary for positions.
-        // const connectorConfig = {
-        //     name: "Transmission Connector Top Left (Glowing)",
-        //     positions: {
-        //         from_longitude: -110.553352,
-        //         from_latitude: 41.317205,
-        //         to_longitude: -110.553589,
-        //         to_latitude: 41.305885,
-        //         z_value: desiredHeightMeters
-        //     },
-        //     width: connectorLineWidth,
-        //     material: pulsatingGlowMaterial,
-        // };
-
-        // const connectorEntity = addConnectorPolyline(viewer, connectorConfig);
-        // console.log("Connector entity added:", connectorEntity);
-
-
         // RIGHT of tower
-        const fromLatDeg = 41.317205;
-        const fromLonDeg = -110.553498; 
-        const toLatDeg   = 41.305885;
-        const toLonDeg   = -110.553589;
         const toLatDegLeft = 41.305911;
         const toLonDegLeft = -110.553520;
         const toLatDegRight = 41.305844;
         const toLonDegRight = -110.553610;        
-
 
         const connectionLineTopLeft = viewer.entities.add({
             name: `Transmission Connector Top Left (Glowing)`, // Simplified name maybe
