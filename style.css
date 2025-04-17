@@ -32,7 +32,7 @@ body {
 /* UI Controls act as the fixed-width sidebar */
 #uiControls {
   /* Removed absolute positioning properties */
-  width: 300px; /* Fixed width for the sidebar */
+  width: 350px; /* Fixed width for the sidebar */
   flex-shrink: 0; /* Prevent sidebar from shrinking */
   height: 100%; /* Fill vertical space */
   overflow-y: auto; /* Add scrollbar if content overflows vertically */
@@ -116,7 +116,7 @@ body {
   position: absolute;
   top: 15px;
   left: 15px;
-  width: 300px; /* Adjust width as needed */
+  width: 320px; /* Adjust width as needed */
   max-height: 300px; /* Limit height and make it scrollable */
   overflow-y: auto;
   padding: 15px;
@@ -131,11 +131,16 @@ body {
 /* Styles for legend content */
 #legendDiv h4 {
   margin-top: 0;
-  margin-bottom: 10px;
+  margin-bottom: 30px;
   padding-bottom: 5px;
   border-bottom: 1px solid #555;
   font-size: 20px;
   text-align: center;
+}
+
+/* space items away from the header/icon */
+#legendDiv > div[id^="legend-item-"] {
+  margin-top: 10px;
 }
 
 #legendDiv div { /* Style for each legend item row */

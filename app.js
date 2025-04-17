@@ -5,21 +5,15 @@ import { addAnimatedModel } from './components/addAnimatedModel.js';
 import { addConnectorPolyline } from './components/addConnectorPolyline.js';
 
 
-// Import utilities
-// import { changeLegendTitleFadeIn } from './utils/uiUtils.js';
-
 // Grant CesiumJS access to your ion assets
-// --- IMPORTANT: Using your actual token ---
 Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIxODFlMzg1MS0yNjNiLTQ2NjQtYjdlNC1jN2RiZjhjMGZiOWQiLCJpZCI6MjkzOTkzLCJpYXQiOjE3NDQ2Mzc2MTF9.hO0qmOtSNBv-buxwOBkgZ6XKPyNk_TQdhhYnohE_Y-A";
 
 // --- Global variables ---
 let viewer;
 let legendTitleElement; // Variable to hold the legend title DOM element
-let doInitialStaging = true;
 let addSuitabilityLayers = true;
 let addPowerPlantLayers = true;
 let addTransmissionLines = true;
-let addModels = true;
 
 // --- UI Elements (Grabbed once) ---
 const legendDiv = document.getElementById('legendDiv');
@@ -27,8 +21,6 @@ const pitchSlider = document.getElementById("pitchSlider");
 const headingSlider = document.getElementById("headingSlider");
 const pitchValue = document.getElementById("pitchValue");
 const headingValue = document.getElementById("headingValue");
-const heightValue = document.getElementById("heightValue");
-const flyToButton = document.getElementById("flyToButton");
 const sequenceButton = document.getElementById("sequenceButton");
 // Intro popup shown until Run Sequence clicked
 const introPopup = document.createElement('div');
@@ -233,6 +225,10 @@ async function startCesium() {
             navigationHelpButton: false, // Keep false or true based on preference
         });
 
+        // ---------------------------------------------
+        //  SET INITIAL VIEW
+        // ---------------------------------------------
+
         // Initial view on load
         viewer.camera.setView({
             destination: Cesium.Cartesian3.fromDegrees(-99.0, 40.0, 4_000_000),
@@ -242,6 +238,87 @@ async function startCesium() {
               roll    : 0.15
             }
           });
+
+
+        // ---------------------------------------------
+        //  3D POWER PLANT MODEL
+        // ---------------------------------------------
+
+        // Define the configuration for the animated model sequence.
+        const constructPowerPlant = {
+            model: {
+                lon: -110.55166,                     // Model longitude
+                lat: 41.31584,                       // Model latitude
+                uris: [                              // Array of model URIs (stages of construction)
+                    './data/models/gas_plant_v3.glb'
+                ],
+                entityBaseId: 'powerPlantModel-main',  // Base ID for all model entities
+                name: 'Gas Power Plant Model',         // Base display name
+                scale: 2,                            // Model scale
+                minimumPixelSize: 64,                  // Minimum pixel size
+                maximumScale: 20000,                   // Maximum scale
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,  // Ensure the model is clamped to the terrain
+                visible: false,         // Return the model completely transparent if false
+            },
+            camera: {
+                flyTo: false,       // Enable camera flight to the model's location
+            },
+            animation: {
+                delayForBuild: 0,  // controls the time lag for the model to be build before adding color - prevents flashing
+                delayBetweenStages: 0   // Delay (ms) before starting the next model addition
+            },
+            legend: {
+                update: false,              // Flag to update the legend title during this phase
+            },
+            cleanup: {
+                removePrevious: false       // Remove previously added entities matching the entityBaseId before adding new ones
+            }
+        };
+
+        // Call the modular function to add and animate the model(s)
+        const modelPowerPlant = addAnimatedModel(viewer, constructPowerPlant);
+
+        // ---------------------------------------------
+        //  3D TRANSMISSION TOWER
+        // ---------------------------------------------
+
+        // Define the configuration for the animated model sequence.
+        const buildTransmissionTower = {
+            model: {
+                lon: -110.553592,                     // Model longitude
+                lat: 41.305885,                       // Model latitude
+                uris: [                              // Array of model URIs (stages of construction)
+                    './data/models/transmission_tower.glb'
+                ],
+                entityBaseId: 'transmissionTower',  // Base ID for all model entities
+                name: 'Transmission Tower',         // Base display name
+                scale: 2,                            // Model scale
+                minimumPixelSize: 64,                  // Minimum pixel size
+                maximumScale: 20000,                   // Maximum scale
+                rotation: 45,                           // Rotation of the model
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,  // Ensure the model is clamped to the terrain
+                visible: false,         // Return the model completely transparent if false
+            },
+            camera: {
+                flyTo: false,       // Enable camera flight to the model's location
+            },
+            animation: {
+                delayForBuild: 0,  // controls the time lag for the model to be build before adding color - prevents flashing
+                delayBetweenStages: 0   // Delay (ms) before starting the next model addition
+            },
+            legend: {
+                update: false,              // Flag to update the legend title during this phase
+            },
+            cleanup: {
+                removePrevious: false       // Remove previously added entities matching the entityBaseId before adding new ones
+            }
+        };
+
+        addAnimatedModel(viewer, buildTransmissionTower);
+
+        // ---------------------------------------------
+        //  SETUP LISTENER
+        // ---------------------------------------------
 
         // console.log("Cesium Viewer initialized successfully.");
         // Add this code after your Cesium initialization, e.g., at the end of your app.js file.
@@ -531,6 +608,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     }
     // console.log("Starting sequence...");
 
+
         // add delay in here to let the icon show
         await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -609,18 +687,6 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
 
         // Update title
         changeLegendTitleFadeIn("Unsuitable Gas Plant Areas");
-        
-        // --- Load Suitability Layers ---
-        // Using sequential awaits as provided by user, not Promise.allSettled
-        // console.log("Loading suitability layers...");
-        // const floodRisk = await addGeoJsonLayer(
-        //     viewerInstance, 
-        //     './data/geojson/flood_risk_clipped.geojson', 
-        //     'flood_risk_clipped', 
-        //     'Flood Risk', 
-        //     '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>', 
-        //     polygonOptions
-        // );
 
         const floodRisk = await addLayerSequentially(viewerInstance, () => Cesium.GeoJsonDataSource.load('./data/geojson/flood_risk_clipped.geojson', polygonOptions), 'flood_risk_clipped', 'Flood Risk', '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>');
         const slopeExceedance = await addLayerSequentially(
@@ -639,6 +705,12 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     // 2. ADD TRANSMISSION LINES LAYER
     // --------------------------------------------------------------------------------
     if (addTransmissionLines){
+        // Add transmission lines layer to the legend
+        addLegendItem(
+            'transmission_clipped',
+            'Transmission Lines',
+            '<div class="legend-symbol" style="background-color:orange; width:20px; height:2px;"></div>'
+        );
         // Load all transmission lines clamped to ground
         const transmissionDs = await Cesium.GeoJsonDataSource.load('./data/geojson/transmission_clipped.geojson', {
             clampToGround: true
@@ -654,6 +726,8 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
         });
     }
 
+    await new Promise(resolve => setTimeout(resolve, 2500));
+
     // --------------------------------------------------------------------------------
     // 3. ADD POWER PLANT LAYERS
     // --------------------------------------------------------------------------------
@@ -665,6 +739,25 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
         // remove suitability layers from legend
         const removeLayers = [...suitabilityLayerIds];
         clearSpecificLegendItems(removeLayers); // Clear old legend items
+        
+        addLegendItem(
+            'unsuitable_areas',
+            'Unsuitable Gas Plant Areas',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>'
+        );
+        // Ensure “Unsuitable Gas Plant Areas” appears as the first entry under the header/icon
+        const uaItem = legendItems['unsuitable_areas'];
+        if (uaItem) {
+            const firstExisting = Array.from(legendDiv.children).find(el =>
+                el.id.startsWith('legend-item-') && el !== uaItem
+            );
+            if (firstExisting) {
+                legendDiv.insertBefore(uaItem, firstExisting);
+            } else {
+                // Fallback: just append if no other legend items exist
+                legendDiv.appendChild(uaItem);
+            }
+        }
 
         // Short pause after clearing legend
         await new Promise(resolve => setTimeout(resolve, 1500)); 
@@ -681,16 +774,26 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             const legendSymbol = `<img src="${iconBase}" class="legend-symbol-img" alt="${year} Gas Plant">`; // Use icon in legend
 
             // Define the list of legend item IDs to KEEP when clearing
-            const itemsToKeep = ['transmission_clipped'];
+            const itemsToKeep = ['transmission_clipped', 'unsuitable_areas'];
 
             // Call addLegendItem: clear items (true), but exclude itemsToKeep
             addLegendItem(layerId, legendTitle, legendSymbol, true, itemsToKeep);
 
             // Format legend text:  find the element we just added by its constructed ID
-            const legendDomId = `legend-item-${layerId.replace(/[^a-zA-Z0-9]/g, '-')}`;
+            const legendDomId = `legend-item-${layerId.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
             const legendElement = document.getElementById(legendDomId);
             if (legendElement) {
                 legendElement.classList.add('power-plant-legend-item'); // Add the CSS class
+                const span = legendElement.querySelector('span');
+                if (span) {
+                    span.style.setProperty('font-size', '30px', 'important');
+                    span.style.setProperty('color', '#ffffff', 'important');
+                }
+                const img = legendElement.querySelector('img.legend-symbol-img');
+                if (img) {
+                    img.style.width = '30px';
+                    img.style.height = '30px';
+                }
                 // console.log(`Added class 'power-plant-legend-item' to ${layerId}`);
             }
 
@@ -715,26 +818,24 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
 
                 // Apply styling to billboards
                 pptDataSource.entities.values.forEach(function(entity) {
-
-                    // Force every power‑plant point up to 3000 m
-                    const orig = entity.position.getValue(Cesium.JulianDate.now());
-                    const carto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(orig);
-                    const lon   = Cesium.Math.toDegrees(carto.longitude);
-                    const lat   = Cesium.Math.toDegrees(carto.latitude);
-                    const height = 5000; // meters - this ensures that the icon for the point floats above the model when in planform
-                    entity.position = new Cesium.ConstantPositionProperty(
-                    Cesium.Cartesian3.fromDegrees(lon, lat, height)
-                    );
-
-                    if (Cesium.defined(entity.billboard)) { // Check if it's a billboard
+ 
+                    if (Cesium.defined(entity.billboard)) {
+                        // Lift each icon to a fixed 5000 m altitude
+                        const origPos = entity.position.getValue(Cesium.JulianDate.now());
+                        const carto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(origPos);
+                        const lon = Cesium.Math.toDegrees(carto.longitude);
+                        const lat = Cesium.Math.toDegrees(carto.latitude);
+                        const height = 5000; // meters above ellipsoid
+                        entity.position = new Cesium.ConstantPositionProperty(
+                          Cesium.Cartesian3.fromDegrees(lon, lat, height)
+                        );
+                        // Style the billboard
                         entity.billboard.image = iconBase;
                         entity.billboard.heightReference = Cesium.HeightReference.NONE;
-                        entity.billboard.verticalOrigin = Cesium.VerticalOrigin.BOTTOM;
-                        entity.billboard.scale = 0.02; // Using very small scale from user code
-                        // entity.billboard.pixelOffset = new Cesium.Cartesian2(0, 6); // User had this commented out
-
-                    } else if (Cesium.defined(entity.point)) { // Fallback check
-                        console.warn(`Power plant entity loaded as PointGraphic: ${entity.id || year}`);
+                        entity.billboard.verticalOrigin = Cesium.VerticalOrigin.CENTER;
+                        entity.billboard.horizontalOrigin = Cesium.HorizontalOrigin.CENTER;
+                        entity.billboard.scale = 0.025; // icon size
+                    } else if (Cesium.defined(entity.point)) {
                         entity.point.pixelSize = 8;
                         entity.point.color = Cesium.Color.ORANGE;
                         entity.point.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
@@ -758,18 +859,170 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
                 // Do NOT update previousPptDataSource
                 removeLegendItem(layerId); // Remove legend item if load failed
             }
+
         } // End of year loop
+
+        // ---------------------------------------------
+        //  EXTRACT TARGET POWER PLANTS
+        // ---------------------------------------------
+
+        const keepId = "c_406381244";
+        const keepYear = 2040;
+
+        powerPlantYears.forEach(year => {
+            const dsArray = viewer.dataSources.getByName(`${year}_gas_plants_clipped`);
+            dsArray.forEach(ds => {
+                if (year !== keepYear) {
+                    // Remove entire datasource for other years
+                    viewer.dataSources.remove(ds, true);
+                } else {
+                    // Only keep the target feature in the 2040 layer
+                    ds.entities.values.slice().forEach(entity => {
+                        const prop = entity.properties && entity.properties.cerf_plant;
+                        const idVal = prop ? prop.getValue(Cesium.JulianDate.now()) : null;
+                        if (idVal !== keepId) {
+                            ds.entities.remove(entity);
+                        }
+                    });
+                    // Clamp the remaining target entity to the ground
+                    const targetEntity = ds.entities.getById(keepId);
+                    if (targetEntity) {
+                        if (Cesium.defined(targetEntity.billboard)) {
+                            targetEntity.billboard.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
+                        } else if (Cesium.defined(targetEntity.point)) {
+                            targetEntity.point.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
+                        }
+                    }
+                }
+            });
+        });
+
+    } // end add power plants
+
+    // ---------------------------------------------
+    //  BUFFERED CIRCLE OF INTEREST
+    // ---------------------------------------------
+
+    // Add buffer circle to legend
+    addLegendItem(
+        'powerPlantBuffer',
+        'Explore Power Plant',
+        '<div class="legend-symbol" style="width:20px; height:20px; border-radius:50%; background-color:rgba(255,0,0,0.3); border:2px solid red;"></div>'
+    );
+
+    // Add a 2 km red buffer circle around the target power plant
+    let bufferLon, bufferLat;
+    const bufferRadius = 15000; // meters
+    const ds2040 = viewer.dataSources.getByName('2040_gas_plants_clipped')[0];
+    if (ds2040) {
+        const target = ds2040.entities.values.find(entity => {
+            const prop = entity.properties && entity.properties.cerf_plant;
+            return prop && prop.getValue(Cesium.JulianDate.now()) === "c_406381244";
+        });
+        if (target && target.position) {
+            const pos = target.position.getValue(Cesium.JulianDate.now());
+            const carto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(pos);
+            bufferLon = Cesium.Math.toDegrees(carto.longitude);
+            bufferLat = Cesium.Math.toDegrees(carto.latitude);
+        } else {
+            console.warn("Target power plant not found; skipping buffer creation");
+        }
+    }
+
+    if (typeof bufferLon === "number" && typeof bufferLat === "number") {
+        viewer.entities.add({
+            name: 'powerPlantBuffer',
+            position: Cesium.Cartesian3.fromDegrees(bufferLon, bufferLat, 0),
+            ellipse: {
+                semiMajorAxis: bufferRadius,
+                semiMinorAxis: bufferRadius,
+                heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+                height: 100, // Lift slightly above ground so it draws on top
+                material: Cesium.Color.RED.withAlpha(0.3),
+                outline: true,
+                outlineColor: Cesium.Color.RED,
+                outlineWidth: 4
+            }
+        });
+    } else {
+        console.warn("Invalid buffer coordinates; buffer not added");
     }
 
 
     // --------------------------------------------------------------------------------
-    // 4. ADD 3D MODEL
+    // MAKE 3D MODELS VISIBLE
     // --------------------------------------------------------------------------------
-    // Clear all layers except the transmission layer
-    clearSequenceGraphics(viewerInstance);
- 
+
+    // After adding power plant layers, make the 3D plant model visible
+    viewer.entities.values
+    .filter(e => typeof e.id === 'string' && e.id.startsWith('powerPlantModel-main'))
+    .forEach(e => { e.show = true; });
+
+    // After making the power plant visible, also show the transmission tower model
+    viewer.entities.values
+    .filter(e => typeof e.id === 'string' && e.id.startsWith('transmissionTower'))
+    .forEach(e => { e.show = true; });
+
+
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // --------------------------------------------------------------------------------
+    // FlY TO CUSTOM LOCATION
+    // --------------------------------------------------------------------------------
+
+    changeLegendTitleFadeIn("Explore Individual Plant");
+    // Remove the buffer entry from the legend before flying
+
+    removeLegendItem('powerPlantBuffer');
+
+    // Remove the buffer circle before flying
+    viewerInstance.entities.values
+      .filter(e => e.name === 'powerPlantBuffer')
+      .forEach(e => viewerInstance.entities.remove(e));
+      
+    // Remove the target power plant entity before flying
+    const ds2040Remove = viewerInstance.dataSources.getByName('2040_gas_plants_clipped')[0];
+    if (ds2040Remove) {
+      const targetPlant = ds2040Remove.entities.getById('c_406381244');
+      if (targetPlant) {
+        ds2040Remove.entities.remove(targetPlant);
+      }
+    }
+    
+    // Remove all power plant icon data sources before flying
+    ['2030', '2035', '2040', '2045', '2050'].forEach(year => {
+      const dsList = viewerInstance.dataSources.getByName(`${year}_gas_plants_clipped`);
+      dsList.forEach(ds => {
+        viewerInstance.dataSources.remove(ds, true);
+      });
+    });
+
+    const flyToDuration = 15.0;
+    const flyToLon = -110.553675;
+    const flyToLat = 41.318206;
+    const flyToHeight = 2296;
+    const flyToHeading = 156;
+    const flyToPitch = -23;
+
+    // Fly to the footprint of the target power plant
+    await flyToLocation(
+        viewerInstance, 
+        bufferLon, 
+        bufferLat,
+        2296 + 5000, 
+        0, 
+        -90, 
+        10
+    );
+
+
+    // --------------------------------------------------------------------------------
+    // ADD IN PARTIAL TRANSMISSION LINE WITH GLOW FORMATTING
+    // --------------------------------------------------------------------------------
+    
     // Isolate and elevate the transmission line with FID = 69025 before model fly-to
-    const ds = viewer.dataSources.getByName('transmission_clipped')[0];
+    const ds = viewerInstance.dataSources.getByName('transmission_clipped')[0];
+    
     if (ds) {
         ds.entities.values.slice().forEach(entity => {
             const fidProp = entity.properties && (entity.properties.FID || entity.properties.fid);
@@ -797,108 +1050,38 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             }
         });
     }
+    // Rename the filtered datasource so it remains after cleaning up the original
+    ds.name = 'transmission_clipped_partial';
+    
+    // Remove the original full transmission layer before the partial glow step
+    viewerInstance.dataSources.getByName('transmission_clipped').forEach(ds => {
+        viewerInstance.dataSources.remove(ds, true);
+    });
 
-    if (addModels) {
-
-        // Define the configuration for the animated model sequence.
-        const constructPowerPlant = {
-            model: {
-                lon: -110.55166,                     // Model longitude
-                lat: 41.31584,                       // Model latitude
-                uris: [                              // Array of model URIs (stages of construction)
-                    './data/models/gas_plant_v3.glb'
-                ],
-                entityBaseId: 'powerPlantModel-main',  // Base ID for all model entities
-                name: 'Gas Power Plant Model',         // Base display name
-                scale: 2,                            // Model scale
-                minimumPixelSize: 64,                  // Minimum pixel size
-                maximumScale: 20000,                   // Maximum scale
-                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND  // Ensure the model is clamped to the terrain
-            },
-            camera: {
-                flyTo: true,       // Enable camera flight to the model's location
-                height: 2316,      // Camera height (meters)
-                pitch: -22,        // Camera pitch (degrees)
-                heading: 199,      // Camera heading (degrees)
-                lonOffset: 0.0015, // Optional longitude offset for camera target
-                latOffset: 0.0035, // Optional latitude offset for camera target
-                duration: 10.0      // Duration (seconds) for the fly-to flight
-            },
-            animation: {
-                delayForBuild: 2000,  // controls the time lag for the model to be build before adding color - prevents flashing
-                delayBetweenStages: 0   // Delay (ms) before starting the next model addition
-            },
-            legend: {
-                update: true,              // Flag to update the legend title during this phase
-                title: "Power Plant Construction", // New legend title
-                titleFadeDuration: 500     // Duration (ms) for the legend title fade transition
-            },
-            cleanup: {
-                removePrevious: true       // Remove previously added entities matching the entityBaseId before adding new ones
-            }
-        };
-
-        // Call the modular function to add and animate the model(s)
-        await addAnimatedModel(viewer, constructPowerPlant);
-
-    } // end addModels
-
-    // --------------------------------------------------------------------------------
-    // 5a. ADD TRANSMISSION TOWER
-    // --------------------------------------------------------------------------------
-    // Define the configuration for the animated model sequence.
-    const buildTransmissionTower = {
-        model: {
-            lon: -110.553592,                     // Model longitude
-            lat: 41.305885,                       // Model latitude
-            uris: [                              // Array of model URIs (stages of construction)
-                './data/models/transmission_tower.glb'
-            ],
-            entityBaseId: 'transmissionTower',  // Base ID for all model entities
-            name: 'Transmission Tower',         // Base display name
-            scale: 2,                            // Model scale
-            minimumPixelSize: 64,                  // Minimum pixel size
-            maximumScale: 20000,                   // Maximum scale
-            rotation: 45,                           // Rotation of the model
-            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND  // Ensure the model is clamped to the terrain
-        },
-        camera: {
-            flyTo: false,       // Enable camera flight to the model's location
-        },
-        animation: {
-            delayForBuild: 0,  // controls the time lag for the model to be build before adding color - prevents flashing
-            delayBetweenStages: 0   // Delay (ms) before starting the next model addition
-        },
-        legend: {
-            update: false,              // Flag to update the legend title during this phase
-        },
-        cleanup: {
-            removePrevious: false       // Remove previously added entities matching the entityBaseId before adding new ones
-        }
-    };
-
-    await addAnimatedModel(viewer, buildTransmissionTower);
+    // Fly to the side of building of the target power plant showing transmission infrastructure
+    await flyToLocation(
+        viewerInstance, 
+        -110.553757, 
+        41.319128,
+        2338, 
+        152, 
+        -18, 
+        15
+    );
 
 
     // --------------------------------------------------------------------------------
-    // 5b. ADD TRANSMISSION CONNECTOR LINE
+    // ADD TRANSMISSION CONNECTOR LINE
     // --------------------------------------------------------------------------------
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise(resolve => setTimeout(resolve, 2500));
 
     changeLegendTitleFadeIn("Connect to Grid");
+    
+    // // Now remove suitability layers from the legend
+    // clearSpecificLegendItems(suitabilityLayerIds);
 
     // Ensure you have access to your 'viewer' instance here
     if (typeof viewer !== 'undefined' && viewer) {
-
-        await flyToLocation(
-            viewerInstance, 
-            -110.553675, 
-            41.318206,
-            2296, 
-            156, 
-            -23, 
-            5.0
-        );
 
         // Set for all connector lines
         const desiredHeightMeters = 2262.5;
