@@ -15,6 +15,9 @@ let addSuitabilityLayers = true;
 let addPowerPlantLayers = true;
 let addTransmissionLines = true;
 
+// true = smooth camera fly; false = instant jump with fade
+let useCameraFly = true;
+
 // --- UI Elements (Grabbed once) ---
 const legendDiv = document.getElementById('legendDiv');
 const pitchSlider = document.getElementById("pitchSlider");
@@ -62,6 +65,62 @@ const polygonOptions = {
     clampToGround: true,
     height: 0,
 };
+
+// Prepare a full‑screen black DIV for fades
+const fadeDiv = document.createElement('div');
+fadeDiv.style.cssText = `
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: black;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.6s ease-in-out;
+  z-index: 999;
+`;
+document.body.appendChild(fadeDiv);
+
+/**
+ * Fade out, jump camera, then fade back in.
+ * @returns {Promise}
+ */
+function fadeTransitionTo(viewerInstance, lon, lat, height, heading, pitch, durationMs = 1000) {
+  return new Promise(resolve => {
+    // 1. Prepare blur overlay fade‑in
+    // ensure no black background
+    fadeDiv.style.background = 'transparent';
+    // animate both opacity and blur amount
+    fadeDiv.style.transition = `opacity ${durationMs}ms ease-in-out, backdrop-filter ${durationMs}ms ease-in-out, -webkit-backdrop-filter ${durationMs}ms ease-in-out`;
+    // set the blur radius you want (e.g., 8px)
+    fadeDiv.style.backdropFilter = 'blur(8px)';
+    fadeDiv.style.webkitBackdropFilter = 'blur(8px)';
+    // fade overlay in (so it applies the blur)
+    fadeDiv.style.opacity = 1;
+
+    // wait for the blur‑in to finish
+    setTimeout(() => {
+      // 2. Jump camera instantly
+      viewerInstance.camera.setView({
+        destination: Cesium.Cartesian3.fromDegrees(lon, lat, height),
+        orientation: {
+          heading: Cesium.Math.toRadians(heading),
+          pitch: Cesium.Math.toRadians(pitch),
+          roll: 0.0
+        }
+      });
+
+      // 3. Fade overlay out (remove blur)
+      fadeDiv.style.backdropFilter = 'blur(0px)';
+      fadeDiv.style.webkitBackdropFilter = 'blur(0px)';
+      fadeDiv.style.opacity = 0;
+
+      // 4. Resolve after blur‑out transition is done
+      setTimeout(resolve, durationMs);
+    }, durationMs);
+  });
+}
 
 
 /**
@@ -152,6 +211,8 @@ function clearSequenceGraphics(viewerInstance) {
         'airports_clipped',
         'cooling_water_clipped', 
         'protected_areas_clipped',
+
+
         // Power Plant Layers (Add all years used)
         '2030_gas_plants_clipped',
         '2035_gas_plants_clipped',
@@ -185,6 +246,20 @@ const pulsatingGlowMaterial = new Cesium.PolylineGlowMaterialProperty({
     }, false), // isConstant = false -> evaluate every frame
     taperPower: 1.0, // Consistent glow power along the line
     color: Cesium.Color.RED.withAlpha(0.7) // Color from your example
+});
+
+const pulsatingGlowMaterialBlue = new Cesium.PolylineGlowMaterialProperty({
+    glowPower: new Cesium.CallbackProperty(function(time, result) {
+        // Use performance.now() for continuous time base, independent of Cesium clock state
+        const seconds = performance.now() / 2000.0;
+        const minGlow = 0.2;
+        const maxGlow = 1.0; // Max glow from your example
+        // Adjust frequency (e.g., * Math.PI * 2 makes it cycle every 1 second)
+        const oscillation = (Math.sin(seconds * Math.PI * 2) + 1) / 2; // Map sin (-1 to 1) -> (0 to 1)
+        return minGlow + oscillation * (maxGlow - minGlow);
+    }, false), // isConstant = false -> evaluate every frame
+    taperPower: 1.0, // Consistent glow power along the line
+    color: Cesium.Color.BLUE.withAlpha(0.7) // Color from your example
 });
 
 const pulsatingGlowMaterialSlow = new Cesium.PolylineGlowMaterialProperty({
@@ -448,9 +523,9 @@ async function startCesium() {
 
 
         // ROI coordinates
-        const roiLon = -110.2;  // -109.908214;
+        const roiLon = -110.7; // -110.2;  
         const roiLat = 41.469939;
-        const roiHeight = 132000; // in meters
+        const roiHeight = 150055; // 132000; // in meters
 
         // Sequence Button Listener
 sequenceButton.addEventListener("click", async () => {
@@ -673,33 +748,217 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     // 1. ADD SUITABILITY LAYERS
     // --------------------------------------------------------------------------------
 
-    const suitabilityLayerIds = [ // Keep track of IDs to remove later
+    const suitabilityLayerIds = [
+        'wilderness_study_areas_clipped',
+        'protected_areas_clipped',
+        'other_protected_areas_clipped',
+        'national_desig_areas_clipped',
+        'crit_env_concern_clipped',
+        'population_clipped',
+        'spec_rec_management_clipped',
+        'bor_management_areas_clipped',
+        'historic_trails_clipped',
         'flood_risk_clipped',
-        'slope_clipped',
-        'airports_clipped',
+        'lakes_reserv_clipped',
         'cooling_water_clipped',
-        'protected_areas_clipped'
+        'nat_reg_property_clipped',
+        'airports_clipped',
+        'wetlands_clipped',
+        'greater_sage_grouse_clipped',
+        'slope_clipped'
     ];
 
     if (addSuitabilityLayers) {
 
-        // legendTitleElement.textContent = "Unsuitable Gas Plant Areas"; // Set initial title
-
         // Update title
-        changeLegendTitleFadeIn("Unsuitable Gas Plant Areas");
+        changeLegendTitleFadeIn("Unsuitable Gas Plant Area");
 
-        const floodRisk = await addLayerSequentially(viewerInstance, () => Cesium.GeoJsonDataSource.load('./data/geojson/flood_risk_clipped.geojson', polygonOptions), 'flood_risk_clipped', 'Flood Risk', '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>');
-        const slopeExceedance = await addLayerSequentially(
-            viewerInstance, () => Cesium.GeoJsonDataSource.load('./data/geojson/slope_clipped.geojson', polygonOptions), 
-            'slope_clipped', 
-            'Slope Exceedance', 
-            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>'
+        // Suitability layers
+        const wildernessStudyAreas = await addLayerSequentially(
+            viewer,
+            () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/wilderness_study_areas_clipped.geojson', polygonOptions),
+            'wilderness_study_areas_clipped',
+            'Wilderness Study Areas',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            2000
         );
 
-        const airportVicinity = await addLayerSequentially(viewerInstance, () => Cesium.GeoJsonDataSource.load('./data/geojson/airports_clipped.geojson', polygonOptions), 'airports_clipped', 'Airport Vicinity', '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>');
-        const coolingWater = await addLayerSequentially(viewerInstance, () => Cesium.GeoJsonDataSource.load('./data/geojson/cooling_water_clipped.geojson', polygonOptions), 'cooling_water_clipped', 'Inadequate Cooling Water Supply', '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>');
-        const protectedAreas = await addLayerSequentially(viewerInstance, () => Cesium.GeoJsonDataSource.load('./data/geojson/protected_areas_clipped.geojson', polygonOptions), 'protected_areas_clipped', 'Protected Area', '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>');
-    } 
+        const protectedAreas = await addLayerSequentially(
+            viewer,
+            () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/protected_areas_clipped.geojson', polygonOptions),
+            'protected_areas_clipped',
+            'Protected Areas',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            2000
+        );
+
+        const otherProtectedAreas = await addLayerSequentially(
+            viewer,
+            () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/other_protected_areas_clipped.geojson', polygonOptions),
+            'other_protected_areas_clipped',
+            '+38 Additional Protected Area',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            2000
+        );
+
+        const nationalDesigAreas = await addLayerSequentially(
+            viewer,
+            () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/national_desig_areas_clipped.geojson', polygonOptions),
+            'national_desig_areas_clipped',
+            'USFS Nationally Designated Areas',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            2000
+        );
+
+        const critEnvConcern = await addLayerSequentially(
+            viewer,
+            () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/crit_env_concern_clipped.geojson', polygonOptions),
+            'crit_env_concern_clipped',
+            'Areas of Critical Environmental Concern',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            2000
+        );
+
+        const population = await addLayerSequentially(
+            viewer,
+            () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/population_clipped.geojson', polygonOptions),
+            'population_clipped',
+            'Densely Populated Areas',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            2000
+        );
+
+        const specRecManagement = await addLayerSequentially(
+            viewer,
+            () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/spec_rec_management_clipped.geojson', polygonOptions),
+            'spec_rec_management_clipped',
+            'Special Recreation Management Areas',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            2000
+        );
+
+        const borManagementAreas = await addLayerSequentially(
+            viewer,
+            () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/bor_management_areas_clipped.geojson', polygonOptions),
+            'bor_management_areas_clipped',
+            'USBOR Management Areas',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            2000
+        );
+
+        const historicTrails = await addLayerSequentially(
+            viewer,
+            () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/historic_trails_clipped.geojson', polygonOptions),
+            'historic_trails_clipped',
+            'National Historic Trails',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            2000
+        );
+
+        const floodRisk = await addLayerSequentially(
+            viewer,
+            () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/flood_risk_clipped.geojson', polygonOptions),
+            'flood_risk_clipped',
+            'Areas with High Flood Risk',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            2000
+        );
+
+        const lakesReserv = await addLayerSequentially(
+            viewer,
+            () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/lakes_reserv_clipped.geojson', polygonOptions),
+            'lakes_reserv_clipped',
+            'Lakes, Reservoirs, and other Water Bodies',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            2000
+        );
+
+        const coolingWater = await addLayerSequentially(
+            viewer,
+            () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/cooling_water_clipped.geojson', polygonOptions),
+            'cooling_water_clipped',
+            'Inadequate Cooling Water Supply',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            2000
+        );
+
+        const natRegProperty = await addLayerSequentially(
+            viewer,
+            () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/nat_reg_property_clipped.geojson', polygonOptions),
+            'nat_reg_property_clipped',
+            'National Register Properties',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            2000
+        );
+
+        const airports = await addLayerSequentially(
+            viewer,
+            () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/airports_clipped.geojson', polygonOptions),
+            'airports_clipped',
+            'Airport Areas',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            2000
+        );
+
+        const wetlands = await addLayerSequentially(
+            viewer,
+            () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/wetlands_clipped.geojson', polygonOptions),
+            'wetlands_clipped',
+            'Wetlands',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            2000
+        );
+
+        const greaterSageGrouse = await addLayerSequentially(
+            viewer,
+            () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/greater_sage_grouse_clipped.geojson', polygonOptions),
+            'greater_sage_grouse_clipped',
+            'Greater Sage Grouse Exclusion Areas',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            2000
+        );
+
+        const slope = await addLayerSequentially(
+            viewer,
+            () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/slope_clipped.geojson', polygonOptions),
+            'slope_clipped',
+            'Slope Exceedance',
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            2000
+        );
+    }
+
+    // --------------------------------------------------------------------------------
+    // 2. ADD GAS PIPELINES LAYER
+    // --------------------------------------------------------------------------------
+    if (addTransmissionLines){
+
+        // Add gas pipelines lines layer to the legend with a dotted symbol
+        addLegendItem(
+            'pipelines_clipped',
+            'Gas Pipelines',
+            '<div class="legend-symbol" style="width:20px; height:0px; border-bottom:2px dashed lightblue;"></div>'
+        );
+        // Load all gas pipelines clamped to ground
+        const pipelineDs = await Cesium.GeoJsonDataSource.load('./data/geojson/wyoming_clip_pipelines.geojson', {
+            clampToGround: true
+        });
+        pipelineDs.name = 'pipelines_clipped';
+        await viewer.dataSources.add(pipelineDs);
+        pipelineDs.entities.values.forEach(entity => {
+            if (entity.polyline) {
+                entity.polyline.width = 2;
+                // Use a dashed material for a dotted line effect
+                entity.polyline.material = new Cesium.PolylineDashMaterialProperty({
+                    color: Cesium.Color.LIGHTBLUE,
+                    dashLength: 10.0
+                });
+                entity.polyline.clampToGround = true;
+            }
+        });
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 2500));
     
     // --------------------------------------------------------------------------------
     // 2. ADD TRANSMISSION LINES LAYER
@@ -712,7 +971,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             '<div class="legend-symbol" style="background-color:orange; width:20px; height:2px;"></div>'
         );
         // Load all transmission lines clamped to ground
-        const transmissionDs = await Cesium.GeoJsonDataSource.load('./data/geojson/transmission_clipped.geojson', {
+        const transmissionDs = await Cesium.GeoJsonDataSource.load('./data/geojson/wyoming_clip_transmission.geojson', {
             clampToGround: true
         });
         transmissionDs.name = 'transmission_clipped';
@@ -774,7 +1033,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             const legendSymbol = `<img src="${iconBase}" class="legend-symbol-img" alt="${year} Gas Plant">`; // Use icon in legend
 
             // Define the list of legend item IDs to KEEP when clearing
-            const itemsToKeep = ['transmission_clipped', 'unsuitable_areas'];
+            const itemsToKeep = ['transmission_clipped', 'unsuitable_areas', 'pipelines_clipped'];
 
             // Call addLegendItem: clear items (true), but exclude itemsToKeep
             addLegendItem(layerId, legendTitle, legendSymbol, true, itemsToKeep);
@@ -907,7 +1166,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     addLegendItem(
         'powerPlantBuffer',
         'Explore Power Plant',
-        '<div class="legend-symbol" style="width:20px; height:20px; border-radius:50%; background-color:rgba(255,0,0,0.3); border:2px solid red;"></div>'
+    '<div class="legend-symbol" style="width:20px; height:20px; border-radius:50%; background-color:rgba(246, 255, 0, 0.98); border:2px solid green;"></div>'
     );
 
     // Add a 2 km red buffer circle around the target power plant
@@ -938,9 +1197,9 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
                 semiMinorAxis: bufferRadius,
                 heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
                 height: 100, // Lift slightly above ground so it draws on top
-                material: Cesium.Color.RED.withAlpha(0.3),
+                material: Cesium.Color.YELLOW.withAlpha(0.3),
                 outline: true,
-                outlineColor: Cesium.Color.RED,
+                outlineColor: Cesium.Color.GREEN,
                 outlineWidth: 4
             }
         });
@@ -1058,16 +1317,60 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
         viewerInstance.dataSources.remove(ds, true);
     });
 
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
     // Fly to the side of building of the target power plant showing transmission infrastructure
-    await flyToLocation(
-        viewerInstance, 
-        -110.553757, 
-        41.319128,
-        2338, 
-        152, 
-        -18, 
-        15
-    );
+    if (useCameraFly) {
+        // the smooth Cesium flyTo
+        await flyToLocation(
+          viewerInstance,
+          -110.553757, 
+          41.319128,
+          2338, 
+          152, 
+          -18, 
+          15
+        );
+      } else {
+        // instant jump with fade
+        await fadeTransitionTo(
+          viewerInstance,
+          -110.553757, 
+          41.319128,
+          2338, 
+          152, 
+          -18,
+          700
+        );
+      }
+
+
+    // --------------------------------------------------------------------------------
+    // ADD GAS PIPELINE CONNECTOR
+    // --------------------------------------------------------------------------------
+    await new Promise(resolve => setTimeout(resolve, 2500));
+
+    changeLegendTitleFadeIn("Connect to Pipeline");
+
+    const gasPipelineConnector = viewer.entities.add({
+        name: `Gas Pipeline Connector`, // Simplified name maybe
+        polyline: {
+            positions: Cesium.Cartesian3.fromDegreesArrayHeights(
+                [ -110.551135, // from lon
+                    41.315745,  // from lat
+                    2200, // from height in m
+                    -110.53741, 
+                    41.271390, 
+                    2200 
+                ]
+            ),
+            width: 10,
+            material: pulsatingGlowMaterialBlue, // Use the shared material
+            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+            clampToGround: false,
+            arcType: Cesium.ArcType.GEODESIC
+        }
+    });
 
 
     // --------------------------------------------------------------------------------

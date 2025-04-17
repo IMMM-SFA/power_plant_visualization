@@ -32,7 +32,7 @@ body {
 /* UI Controls act as the fixed-width sidebar */
 #uiControls {
   /* Removed absolute positioning properties */
-  width: 350px; /* Fixed width for the sidebar */
+  width: 300px; /* Fixed width for the sidebar */
   flex-shrink: 0; /* Prevent sidebar from shrinking */
   height: 100%; /* Fill vertical space */
   overflow-y: auto; /* Add scrollbar if content overflows vertically */
@@ -117,7 +117,7 @@ body {
   top: 15px;
   left: 15px;
   width: 320px; /* Adjust width as needed */
-  max-height: 300px; /* Limit height and make it scrollable */
+  max-height: 1000px; /* Limit height and make it scrollable */
   overflow-y: auto;
   padding: 15px;
   background-color: rgba(40, 40, 40, 0.8); /* Slightly more transparent than controls */
