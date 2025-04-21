@@ -11,12 +11,28 @@ Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOi
 // --- Global variables ---
 let viewer;
 let legendTitleElement; // Variable to hold the legend title DOM element
-let addSuitabilityLayers = false;
-let addPowerPlantLayers = true;
+
+// -----------------------------------
+// Selectable options
+// -----------------------------------
+let addSuitabilityLayers = true;
+let addGasPipelines = true;
 let addTransmissionLines = true;
+let addPowerPlantLayers = true;
+let addBuffer = false;
 
 // true = smooth camera fly; false = instant jump with fade
 let useCameraFly = true;
+
+// Time delay after a suitability layer is added
+let suitabilityDelayMs = 100; // 2000
+
+let pipelineWaitMs = 100; // 2500
+let transmissionlineWaitMs = 100; // 2500
+
+// Directly load on the ROI 
+let goDirectlyToRoi = false;
+
 
 // --- UI Elements (Grabbed once) ---
 const legendDiv = document.getElementById('legendDiv');
@@ -25,15 +41,17 @@ const headingSlider = document.getElementById("headingSlider");
 const pitchValue = document.getElementById("pitchValue");
 const headingValue = document.getElementById("headingValue");
 const sequenceButton = document.getElementById("sequenceButton");
+
 // Intro popup shown until Run Sequence clicked
 const introPopup = document.createElement('div');
 introPopup.id = 'introPopup';
 introPopup.innerHTML = `
   <h1 style="margin:0; font-weight:bold; font-size:24px; color:white;">
-    Projected locations of new natural gas combined cycle (recirculating cooling) power plants in Wyoming, USA (2020-2050)
+    Projected locations of new natural gas combined cycle power plants (with recirculating cooling) in Wyoming, USA (2020-2050)
   </h1>
+  </br>
   <p style="margin:8px 0 0; font-weight:400; font-size:18px; color:rgba(255,255,255,0.8);">
-    (CERF: Capacity Expansion Regional Feasibility model, https://immm-sfa.github.io/cerf/)
+    This visualization uses results from CERF: Capacity Expansion Regional Feasibility model, https://immm-sfa.github.io/cerf/
   </p>
 `;
 introPopup.style.cssText = `
@@ -45,10 +63,11 @@ introPopup.style.cssText = `
   border: 2px solid #333;
   border-radius: 12px;
   padding: 40px 60px;
-  min-width: 400px;
+  width: 350px;
   text-align: center;
   z-index: 1000;
 `;
+
 // Append popup inside the Cesium container so it centers over the map
 const cesiumContainer = document.getElementById('cesiumContainer');
 cesiumContainer.style.position = cesiumContainer.style.position || 'relative';
@@ -257,6 +276,19 @@ const pulsatingGlowMaterial = new Cesium.PolylineGlowMaterialProperty({
     color: Cesium.Color.RED.withAlpha(0.7) // Color from your example
 });
 
+// Pulsating aqua glow for pipeline connector
+const pulsatingGlowMaterialAqua = new Cesium.PolylineGlowMaterialProperty({
+    glowPower: new Cesium.CallbackProperty(function(time, result) {
+        const seconds = performance.now() / 2500.0;
+        const minGlow = 0.4;
+        const maxGlow = 0.8;
+        const oscillation = (Math.sin(seconds * Math.PI * 2) + 1) / 2;
+        return minGlow + oscillation * (maxGlow - minGlow);
+    }, false),
+    taperPower: 1.0,
+    color: Cesium.Color.AQUA.withAlpha(0.7)
+});
+
 const pulsatingGlowMaterialBlue = new Cesium.PolylineGlowMaterialProperty({
     glowPower: new Cesium.CallbackProperty(function(time, result) {
         // Use performance.now() for continuous time base, independent of Cesium clock state
@@ -293,7 +325,7 @@ async function startCesium() {
         viewer = new Cesium.Viewer('cesiumContainer', {
             // Use Cesium World Terrain via Ion Asset ID (Asset 1) - ENABLED
             terrainProvider: await Cesium.CesiumTerrainProvider.fromIonAssetId(1),
-
+ 
             // Use high-res satellite imagery from Esri by default
             imageryProvider: new Cesium.ArcGisMapServerImageryProvider({
                 url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer',
@@ -308,6 +340,8 @@ async function startCesium() {
             timeline: false, // Keep false unless time-dynamic data is used
             navigationHelpButton: false, // Keep false or true based on preference
         });
+        // Hide the default Cesium credit/attribution bar
+        viewer.cesiumWidget.creditContainer.style.display = 'none';
 
         // ---------------------------------------------
         //  SET INITIAL VIEW
@@ -360,10 +394,10 @@ async function startCesium() {
         };
 
         // Call the modular function to add and animate the model(s)
-        const modelPowerPlant = addAnimatedModel(viewer, constructPowerPlant);
+        addAnimatedModel(viewer, constructPowerPlant);
 
         // ---------------------------------------------
-        //  3D TRANSMISSION TOWER
+        //  3D TRANSMISSION TOWERS
         // ---------------------------------------------
 
         // Define the configuration for the animated model sequence.
@@ -399,6 +433,76 @@ async function startCesium() {
         };
 
         addAnimatedModel(viewer, buildTransmissionTower);
+
+
+        // Define the configuration for the animated model sequence.
+        const buildTransmissionTowerTwo = {
+            model: {
+                lon: -110.545374,                     // Model longitude
+                lat: 41.309198,                       // Model latitude
+                uris: [                              // Array of model URIs (stages of construction)
+                    './data/models/transmission_tower.glb'
+                ],
+                entityBaseId: 'transmissionTowerTwo',  // Base ID for all model entities
+                name: 'Transmission Tower',         // Base display name
+                scale: 2,                            // Model scale
+                minimumPixelSize: 64,                  // Minimum pixel size
+                maximumScale: 20000,                   // Maximum scale
+                rotation: 45,                           // Rotation of the model
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,  // Ensure the model is clamped to the terrain
+                visible: false,         // Return the model completely transparent if false
+            },
+            camera: {
+                flyTo: false,       // Enable camera flight to the model's location
+            },
+            animation: {
+                delayForBuild: 0,  // controls the time lag for the model to be build before adding color - prevents flashing
+                delayBetweenStages: 0   // Delay (ms) before starting the next model addition
+            },
+            legend: {
+                update: false,              // Flag to update the legend title during this phase
+            },
+            cleanup: {
+                removePrevious: false       // Remove previously added entities matching the entityBaseId before adding new ones
+            }
+        };
+
+        addAnimatedModel(viewer, buildTransmissionTowerTwo);
+
+
+        // Define the configuration for the animated model sequence.
+        const buildTransmissionTowerThree = {
+            model: {
+                lon: -110.525461,                     // Model longitude
+                lat: 41.309241,                       // Model latitude
+                uris: [                              // Array of model URIs (stages of construction)
+                    './data/models/transmission_tower.glb'
+                ],
+                entityBaseId: 'transmissionTowerThree',  // Base ID for all model entities
+                name: 'Transmission Tower',         // Base display name
+                scale: 2.1,                            // Model scale
+                minimumPixelSize: 64,                  // Minimum pixel size
+                maximumScale: 20000,                   // Maximum scale
+                rotation: 45,                           // Rotation of the model
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,  // Ensure the model is clamped to the terrain
+                visible: false,         // Return the model completely transparent if false
+            },
+            camera: {
+                flyTo: false,       // Enable camera flight to the model's location
+            },
+            animation: {
+                delayForBuild: 0,  // controls the time lag for the model to be build before adding color - prevents flashing
+                delayBetweenStages: 0   // Delay (ms) before starting the next model addition
+            },
+            legend: {
+                update: false,              // Flag to update the legend title during this phase
+            },
+            cleanup: {
+                removePrevious: false       // Remove previously added entities matching the entityBaseId before adding new ones
+            }
+        };
+
+        addAnimatedModel(viewer, buildTransmissionTowerThree);
 
         // ---------------------------------------------
         //  SETUP LISTENER
@@ -484,7 +588,8 @@ async function startCesium() {
               destination: Cesium.Cartesian3.fromRadians(center.longitude, center.latitude, currentHeight),
               orientation: { heading: heading, pitch: pitch, roll: 0.0 }
             });
-          }
+
+        }
 
         pitchSlider.addEventListener("input", () => { pitchValue.textContent = pitchSlider.value; updateCameraFromSliders(); });
         headingSlider.addEventListener("input", () => { headingValue.textContent = headingSlider.value; updateCameraFromSliders(); });
@@ -562,6 +667,97 @@ sequenceButton.addEventListener("click", async () => {
             container.innerHTML = `<div style="padding: 20px; color: red; text-align: center;">Error initializing map: ${error.message} <br/> Please check the console (F12) and ensure your Cesium Ion Token is correct.</div>`;
         }
     }
+}
+
+/**
+ * Animate a white rectangle randomly moving around your NLC grid
+ * until it settles over the cell containing the current year’s plant.
+ *
+ * @param {Cesium.Viewer} viewerInstance
+ * @param {Cesium.GeoJsonDataSource} nlcDs         – the loaded NLC layer for that year
+ * @param {Cesium.DataSource} pptDs               – the loaded power‑plant GeoJSON for that year
+ * @param {number} durationSeconds                – how long to random‑move before settling
+ * @returns {Promise<void>}                       – resolves once the highlight is in place
+ */
+function animateRandomHighlight(viewerInstance, nlcDs, pptDs, durationSeconds, maskRect) {
+    // If a mask rectangle is provided, filter to only those NLC entities whose bounding rect intersects it
+    let entitiesToUse = nlcDs.entities.values;
+    if (maskRect) {
+        entitiesToUse = entitiesToUse.filter(ent => {
+            const coords = ent.polygon.hierarchy.getValue(Cesium.JulianDate.now()).positions;
+            const cellRect = Cesium.Rectangle.fromCartesianArray(coords);
+            return Cesium.Rectangle.intersection(cellRect, maskRect) !== undefined;
+        });
+    }
+    return new Promise(resolve => {
+        // 1. Sample one NLC cell to get its width/height
+        const sample = entitiesToUse[0];
+        const sampleCartesians = sample.polygon.hierarchy.getValue(Cesium.JulianDate.now()).positions;
+        const sampleRect       = Cesium.Rectangle.fromCartesianArray(sampleCartesians);
+        const cellW = sampleRect.east  - sampleRect.west;
+        const cellH = sampleRect.north - sampleRect.south;
+
+        // 2. Compute the full NLC extent
+        let minW = Infinity, maxE = -Infinity, minS = Infinity, maxN = -Infinity;
+        entitiesToUse.forEach(ent => {
+            const coords = ent.polygon.hierarchy.getValue(Cesium.JulianDate.now()).positions;
+            const r = Cesium.Rectangle.fromCartesianArray(coords);
+            minW = Math.min(minW, r.west);
+            maxE = Math.max(maxE, r.east);
+            minS = Math.min(minS, r.south);
+            maxN = Math.max(maxN, r.north);
+        });
+
+        // 3. Find which NLC cell contains the plant
+        const plantPos   = pptDs.entities.values[0].position.getValue(Cesium.JulianDate.now());
+        const plantCarto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(plantPos);
+        let targetRect = sampleRect;
+        entitiesToUse.some(ent => {
+            const coords = ent.polygon.hierarchy.getValue(Cesium.JulianDate.now()).positions;
+            const r      = Cesium.Rectangle.fromCartesianArray(coords);
+            if (Cesium.Rectangle.contains(r, plantCarto)) {
+                targetRect = r;
+                return true;
+            }
+            return false;
+        });
+
+        // 4. Add a semi‑transparent white rectangle with a thicker outline
+        const highlight = viewerInstance.entities.add({
+            id: 'randomRectHighlight',
+            rectangle: {
+                coordinates: sampleRect,
+                material:      Cesium.Color.RED.withAlpha(1.0),
+                outline:       true,
+                outlineColor:  Cesium.Color.WHITE,
+                outlineWidth:  6,
+                height:        1000,
+                heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
+            }
+        });
+
+        // 5. Every 200 ms, jump to a random cell until time’s up, then settle.
+        const stepMs   = 200;
+        const steps    = durationSeconds * 1000 / stepMs;
+        let   current  = 0;
+        const handle = setInterval(() => {
+            if (++current >= steps) {
+                clearInterval(handle);
+                highlight.rectangle.coordinates = targetRect;
+                // Turn the highlight green once it settles on the target
+                highlight.rectangle.material = Cesium.Color.GREEN.withAlpha(1.0);
+                highlight.rectangle.outlineColor = Cesium.Color.WHITE;
+                highlight.rectangle.outlineWidth = 20;
+
+                resolve();
+            } else {
+                const w = minW  + Math.random() * (maxE - minW - cellW);
+                const s = minS  + Math.random() * (maxN - minS - cellH);
+                const randR = new Cesium.Rectangle(w, s, w + cellW, s + cellH);
+                highlight.rectangle.coordinates = randR;
+            }
+        }, stepMs);
+    });
 }
 
 // Fly-to Implementation
@@ -683,6 +879,44 @@ async function addLayerSequentially(viewerInstance, layerPromiseFactory, id, tit
     }
 }
 
+async function addNlcLayer(year) {
+    // Load NLC GeoJSON and add to viewer
+    const url = `./data/geojson/nlc/${year}_nlc.geojson`;
+    const nlcDs = await Cesium.GeoJsonDataSource.load(url, {
+        clampToGround: true
+    });
+    nlcDs.name = `${year}_nlc`;
+    await viewer.dataSources.add(nlcDs);
+    // Keep NLC layer hidden on map
+    nlcDs.show = false;
+
+    // Compute min/max for NLC property
+    const values = nlcDs.entities.values.map(entity =>
+        entity.properties.NLC.getValue(Cesium.JulianDate.now())
+    );
+    const minVal = Math.min(...values);
+    const maxVal = Math.max(...values);
+
+    // Colorize each polygon based on normalized NLC value
+    nlcDs.entities.values.forEach(entity => {
+        const val = entity.properties.NLC.getValue(Cesium.JulianDate.now());
+        let t = (val - minVal) / (maxVal - minVal);
+        t = Math.min(Math.max(t, 0), 1);
+        const color = Cesium.Color
+            .lerp(Cesium.Color.GREEN, Cesium.Color.RED, t, new Cesium.Color())
+            .withAlpha(0.8);
+
+        if (entity.polygon) {
+            entity.polygon.material = color;
+            entity.polygon.outline = true;
+            entity.polygon.outlineColor = Cesium.Color.BLACK;
+            entity.polygon.outlineWidth = 1;
+        }
+    });
+
+    
+}
+
 // --- Main Animation Sequence ---
 async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     // NOTE: This sequence targets the user-confirmed ROI: Lon ~-109.9, Lat ~41.5 (WY/UT/CO area)
@@ -786,7 +1020,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             'id_suitability0',
             'Lakes, Reservoirs, and other Water Bodies',
             '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
-            2000
+            suitabilityDelayMs
         );
         
     
@@ -796,7 +1030,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             'id_suitability1',
             'Airport Areas',
             '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
-            2000
+            suitabilityDelayMs
         );
         
     
@@ -806,7 +1040,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             'id_suitability2',
             'Slope Exceedance',
             '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
-            2000
+            suitabilityDelayMs
         );
         
     
@@ -816,7 +1050,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             'id_suitability3',
             'Inadequate Cooling Water Supply',
             '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
-            2000
+            suitabilityDelayMs
         );
         
     
@@ -826,7 +1060,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             'id_suitability4',
             'Densely Populated Areas',
             '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
-            2000
+            suitabilityDelayMs
         );
         
     
@@ -836,7 +1070,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             'id_suitability5',
             'Areas with High Flood Risk',
             '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
-            2000
+            suitabilityDelayMs
         );
         
     
@@ -846,7 +1080,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             'id_suitability6',
             'Wilderness Study Areas',
             '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
-            2000
+            suitabilityDelayMs
         );
         
     
@@ -856,7 +1090,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             'id_suitability7',
             'National Historic Trails',
             '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
-            2000
+            suitabilityDelayMs
         );
         
     
@@ -866,7 +1100,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             'id_suitability8',
             'USFS Nationally Designated Areas',
             '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
-            2000
+            suitabilityDelayMs
         );
         
     
@@ -876,7 +1110,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             'id_suitability9',
             'USBOR Management Areas',
             '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
-            2000
+            suitabilityDelayMs
         );
         
     
@@ -886,7 +1120,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             'id_suitability10',
             'Wetlands',
             '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
-            2000
+            suitabilityDelayMs
         );
         
     
@@ -896,7 +1130,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             'id_suitability11',
             'National Register Properties',
             '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
-            2000
+            suitabilityDelayMs
         );
         
     
@@ -906,7 +1140,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             'id_suitability12',
             'Special Recreation Management Areas',
             '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
-            2000
+            suitabilityDelayMs
         );
         
     
@@ -916,7 +1150,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             'id_suitability13',
             'Visual Resource Management Areas',
             '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
-            2000
+            suitabilityDelayMs
         );
         
     
@@ -926,14 +1160,14 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             'id_suitability14',
             '40 Other Exclusion Layers',
             '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
-            2000
+            suitabilityDelayMs
         );
         
     }
     // --------------------------------------------------------------------------------
-    // 2. ADD GAS PIPELINES LAYER
+    // ADD GAS PIPELINES LAYER
     // --------------------------------------------------------------------------------
-    if (addTransmissionLines){
+    if (addGasPipelines){
 
         // Add gas pipelines lines layer to the legend with a dotted symbol
         addLegendItem(
@@ -960,10 +1194,10 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
         });
     }
 
-    await new Promise(resolve => setTimeout(resolve, 2500));
+    await new Promise(resolve => setTimeout(resolve, pipelineWaitMs));
     
     // --------------------------------------------------------------------------------
-    // 2. ADD TRANSMISSION LINES LAYER
+    // ADD TRANSMISSION LINES LAYER
     // --------------------------------------------------------------------------------
     if (addTransmissionLines){
         // Add transmission lines layer to the legend
@@ -987,10 +1221,10 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
         });
     }
 
-    await new Promise(resolve => setTimeout(resolve, 2500));
+    await new Promise(resolve => setTimeout(resolve, transmissionlineWaitMs));
 
     // --------------------------------------------------------------------------------
-    // 3. ADD POWER PLANT LAYERS
+    // ADD POWER PLANT LAYERS
     // --------------------------------------------------------------------------------
     if (addPowerPlantLayers) {
 
@@ -1027,15 +1261,35 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
         // console.log("Loading power plant layers...");
         const powerPlantYears = [2030, 2035, 2040, 2045, 2050];
         const iconBase = './data/markers/round_gas_icon.png'; // Store base path
+        let previousNlcYear = null;
 
         for (const year of powerPlantYears) {
+ 
+            // Example usage: add the 2030 NLC layer
+            await addNlcLayer(year);
+
+            // Brief pause to let the new NLC layer render before removing the old one
+            // await new Promise(resolve => setTimeout(resolve, 1000));
+
+            // Now remove the old NLC layer to avoid a flashing gap
+            if (previousNlcYear !== null) {
+                removeLegendItem(`${previousNlcYear}_nlc`);
+                viewerInstance.dataSources
+                    .getByName(`${previousNlcYear}_nlc`)
+                    .forEach(ds => viewerInstance.dataSources.remove(ds, true));
+            }
+            previousNlcYear = year;
+
+            // Wait before adding the power plant layer
+            await new Promise(resolve => setTimeout(resolve, 2500));
+
             const filename = `./data/geojson/${year}_gas_plants_clipped.geojson`;
             const layerId = `${year}_gas_plants_clipped`;
             const legendTitle = `${year}`; // Legend entry is just the year
             const legendSymbol = `<img src="${iconBase}" class="legend-symbol-img" alt="${year} Gas Plant">`; // Use icon in legend
 
             // Define the list of legend item IDs to KEEP when clearing
-            const itemsToKeep = ['transmission_clipped', 'unsuitable_areas', 'pipelines_clipped'];
+            const itemsToKeep = ['transmission_clipped', 'unsuitable_areas', 'pipelines_clipped', `${year}_nlc`];
 
             // Call addLegendItem: clear items (true), but exclude itemsToKeep
             addLegendItem(layerId, legendTitle, legendSymbol, true, itemsToKeep);
@@ -1069,48 +1323,144 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
                 2000, // 2-second delay
                 false // remove delay as it will cause the icon to appear after the default icon shows up
             );
+            // Hide all power plant icons until after highlight animation
+            pptDataSource.show = false;
 
             // Visibility and Styling Logic
             if (pptDataSource) {
                 // console.log(`Successfully loaded ${layerId}. Applying styles...`);
 
-                // Ensure current data source is visible
-                pptDataSource.show = true;
+            // Compute 100 km buffer around this year's plant and display it
+            const plantEntity = pptDataSource.entities.values[0];
+            const plantPos = plantEntity.position.getValue(Cesium.JulianDate.now());
+            const plantCarto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(plantPos);
+            const bufferMeters = 15000;
+            const earthRadius = Cesium.Ellipsoid.WGS84.maximumRadius;
+            const angularDistance = bufferMeters / earthRadius;
+            
+            // Random offset so rectangles still contain the plant but are not centered
+            const maxLatOffset = angularDistance / 2;
+            const maxLonOffset = (angularDistance / Math.cos(plantCarto.latitude)) / 2;
+            const deltaLat = (Math.random() * 2 - 1) * maxLatOffset;
+            const deltaLon = (Math.random() * 2 - 1) * maxLonOffset;
+            const south = plantCarto.latitude - angularDistance;
+            const north = plantCarto.latitude + angularDistance;
+            const west = plantCarto.longitude - angularDistance / Math.cos(plantCarto.latitude);
+            const east = plantCarto.longitude + angularDistance / Math.cos(plantCarto.latitude);
+            // Apply the same random offset so the maskRect shifts identically
+            const maskRect = new Cesium.Rectangle(
+                west  + deltaLon,
+                south + deltaLat,
+                east  + deltaLon,
+                north + deltaLat
+            );
+            
+            // Compute a larger second “show” rectangle to contain intersecting polygons
+            const extraArea = 150 * 1e6;
+            const oldSide = 2 * bufferMeters;
+            const newSide = Math.sqrt(oldSide * oldSide + extraArea);
+            const extraDist = (newSide - oldSide) / 2;
+            const showBuffer = bufferMeters + extraDist;
+            const showAng = showBuffer / earthRadius;
+            const south2 = plantCarto.latitude - showAng + deltaLat;
+            const north2 = plantCarto.latitude + showAng + deltaLat;
+            const west2  = plantCarto.longitude - (showAng / Math.cos(plantCarto.latitude)) + deltaLon;
+            const east2  = plantCarto.longitude + (showAng / Math.cos(plantCarto.latitude)) + deltaLon;
+            const showRect = new Cesium.Rectangle(west2, south2, east2, north2);
 
-                // Apply styling to billboards
-                pptDataSource.entities.values.forEach(function(entity) {
- 
-                    if (Cesium.defined(entity.billboard)) {
-                        // Lift each icon to a fixed 5000 m altitude
-                        const origPos = entity.position.getValue(Cesium.JulianDate.now());
-                        const carto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(origPos);
-                        const lon = Cesium.Math.toDegrees(carto.longitude);
-                        const lat = Cesium.Math.toDegrees(carto.latitude);
-                        const height = 5000; // meters above ellipsoid
-                        entity.position = new Cesium.ConstantPositionProperty(
-                          Cesium.Cartesian3.fromDegrees(lon, lat, height)
-                        );
-                        // Style the billboard
-                        entity.billboard.image = iconBase;
-                        entity.billboard.heightReference = Cesium.HeightReference.NONE;
-                        entity.billboard.verticalOrigin = Cesium.VerticalOrigin.CENTER;
-                        entity.billboard.horizontalOrigin = Cesium.HorizontalOrigin.CENTER;
-                        entity.billboard.scale = 0.025; // icon size
-                    } else if (Cesium.defined(entity.point)) {
-                        entity.point.pixelSize = 8;
-                        entity.point.color = Cesium.Color.ORANGE;
-                        entity.point.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
-                    } else {
-                        console.warn(`Entity in ${year} layer is not a billboard or point: ${entity.id || year}`);
-                    }
+            // Draw the semi-transparent rectangle without outline
+            viewerInstance.entities.add({
+                id: 'showRectMask',
+                rectangle: {
+                  coordinates: showRect,
+                  material: Cesium.Color.BLACK.withAlpha(0.3),
+                  outline: false,
+                  height: 0,
+                  heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
+                }
+            });
+            // Draw a separate polyline to outline the rectangle with thicker width
+            viewerInstance.entities.add({
+                id: 'showRectOutline',
+                polyline: {
+                    positions: Cesium.Cartesian3.fromRadiansArray([
+                        showRect.west, showRect.south,
+                        showRect.east, showRect.south,
+                        showRect.east, showRect.north,
+                        showRect.west, showRect.north,
+                        showRect.west, showRect.south
+                    ]),
+                    width: 3,
+                    material: Cesium.Color.WHITE,
+                    clampToGround: false,
+                    heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
+                }
+            });
+
+            // Animate random box that converges on power plant location
+            await animateRandomHighlight(
+                viewerInstance,
+                viewerInstance.dataSources.getByName(`${year}_nlc`)[0],
+                pptDataSource,
+                10.0,
+                maskRect
+            );
+
+            // Brief pause before citing the power plant icon
+            await new Promise(resolve => setTimeout(resolve, 2000));
+
+            // Ensure current data source is visible
+            // (Removed: pptDataSource.show = true;)
+
+            // Wait one second, then clean up both rectangles before moving on
+            await new Promise(r => setTimeout(r, 1000));
+                ['showRectMask','showRectOutline','randomRectHighlight']
+                .forEach(id => {
+                const e = viewerInstance.entities.getById(id);
+                if (e) viewerInstance.entities.remove(e);
+            });
+
+            // Apply styling to billboards
+            pptDataSource.entities.values.forEach(function(entity) {
+
+                if (Cesium.defined(entity.billboard)) {
+                    // Lift each icon to a fixed 5000 m altitude
+                    const origPos = entity.position.getValue(Cesium.JulianDate.now());
+                    const carto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(origPos);
+                    const lon = Cesium.Math.toDegrees(carto.longitude);
+                    const lat = Cesium.Math.toDegrees(carto.latitude);
+                    const height = 5000; // meters above ellipsoid
+                    entity.position = new Cesium.ConstantPositionProperty(
+                        Cesium.Cartesian3.fromDegrees(lon, lat, height)
+                    );
+                    // Style the billboard
+                    entity.billboard.image = iconBase;
+                    entity.billboard.heightReference = Cesium.HeightReference.NONE;
+                    entity.billboard.verticalOrigin = Cesium.VerticalOrigin.CENTER;
+                    entity.billboard.horizontalOrigin = Cesium.HorizontalOrigin.CENTER;
+                    entity.billboard.scale = 0.025; // icon size
+                    entity.billboard.disableDepthTestDistance = Number.POSITIVE_INFINITY;
+                } else if (Cesium.defined(entity.point)) {
+                    entity.point.pixelSize = 8;
+                    entity.point.color = Cesium.Color.ORANGE;
+                    entity.point.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
+                } else {
+                    console.warn(`Entity in ${year} layer is not a billboard or point: ${entity.id || year}`);
+                }
+            });
+            // console.log(`Finished applying styles to ${year} entities.`);
+
+            // Once all entities have been restyled with the custom icon, show the layer.
+            pptDataSource.show = true;
+
+            // add delay in here to let the icon show
+            await new Promise(resolve => setTimeout(resolve, 2500));
+                removeLegendItem(`${year}_nlc`);
+                removeLegendItem(layerId);
+                // Remove the NLC layer data source now that we’re done with this year
+                viewerInstance.dataSources.getByName(`${year}_nlc`).forEach(ds => {
+                    viewerInstance.dataSources.remove(ds, true);
                 });
-                // console.log(`Finished applying styles to ${year} entities.`);
-
-                // Once all entities have been restyled with the custom icon, show the layer.
-                pptDataSource.show = true;
-
-                // add delay in here to let the icon show
-                await new Promise(resolve => setTimeout(resolve, 2500));
 
 
             } else {
@@ -1160,9 +1510,13 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
 
     } // end add power plants
 
+    asdf;
+
     // ---------------------------------------------
     //  BUFFERED CIRCLE OF INTEREST
     // ---------------------------------------------
+
+    await new Promise(resolve => setTimeout(resolve, 2500));
 
     // Add buffer circle to legend
     addLegendItem(
@@ -1209,7 +1563,6 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
         console.warn("Invalid buffer coordinates; buffer not added");
     }
 
-
     // --------------------------------------------------------------------------------
     // MAKE 3D MODELS VISIBLE
     // --------------------------------------------------------------------------------
@@ -1224,6 +1577,13 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     .filter(e => typeof e.id === 'string' && e.id.startsWith('transmissionTower'))
     .forEach(e => { e.show = true; });
 
+    viewer.entities.values
+    .filter(e => typeof e.id === 'string' && e.id.startsWith('transmissionTowerTwo'))
+    .forEach(e => { e.show = true; });
+
+    viewer.entities.values
+    .filter(e => typeof e.id === 'string' && e.id.startsWith('transmissionTowerThree'))
+    .forEach(e => { e.show = true; });
 
     await new Promise(resolve => setTimeout(resolve, 3000));
 
@@ -1270,12 +1630,11 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
         viewerInstance, 
         bufferLon, 
         bufferLat,
-        2296 + 5000, 
+        2296 + 10000, 
         0, 
         -90, 
         10
     );
-
 
     // --------------------------------------------------------------------------------
     // ADD IN PARTIAL TRANSMISSION LINE WITH GLOW FORMATTING
@@ -1288,7 +1647,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
         ds.entities.values.slice().forEach(entity => {
             const fidProp = entity.properties && (entity.properties.FID || entity.properties.fid);
             const fid = fidProp ? fidProp.getValue(Cesium.JulianDate.now()) : null;
-            if (fid === 69025) {
+            if ([69025, 75053, 75054, 75052, 69024].includes(fid)) {
                 // Override its positions to z = 2262.5 and apply glow
                 const cartesians = entity.polyline.positions.getValue(Cesium.JulianDate.now());
                 const cartographics = Cesium.Ellipsoid.WGS84.cartesianArrayToCartographicArray(cartesians);
@@ -1361,14 +1720,17 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
                 [ -110.551135, // from lon
                     41.315745,  // from lat
                     2200, // from height in m
-                    -110.53741, 
-                    41.271390, 
+                    -110.471169, 
+                    41.307648, 
                     2200 
                 ]
             ),
             width: 10,
-            material: pulsatingGlowMaterialBlue, // Use the shared material
+            // material: pulsatingGlowMaterialBlue, // Use the shared material
             heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+            // clampToGround: false,
+            // width: 6,
+            material: pulsatingGlowMaterialAqua,
             clampToGround: false,
             arcType: Cesium.ArcType.GEODESIC
         }
@@ -1473,6 +1835,43 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     } else {
         console.error("Cesium viewer instance is not available. Cannot add polyline.");
     }
+
+await new Promise(resolve => setTimeout(resolve, 3500));
+
+
+    // Add a persistent credits popup
+    const creditsPopup = document.createElement('div');
+    creditsPopup.id = 'creditsPopup';
+
+    creditsPopup.innerHTML = `
+    <h2 style="margin:0; color:white;">
+        Explore more research from the Integrated Multisector Multiscale Modeling (IM3) project at </br> https://im3.pnnl.gov  
+    </h2>
+    </br>
+    <h5 style="margin:0;  color:white;">
+        How to cite:</br>
+        Mongird, K., Vernon, C. R., Thurber, T., & Rice, J. S. (2025, April 20). CERF Visualization: Projected locations of new natural gas combined cycle (recirculating cooling) power plants in Wyoming, USA (2020-2050).  https://doi.org/10.57931/2001010
+    </h5>
+    </br>
+    <p style="margin:8px 0 0; font-weight:400; font-size:12px; color:rgba(255,255,255,0.8);">
+        Background Satellite Imagery: </br>Data available from the U.S. Geological Survey, © CGIAR-CSI, Produced using Copernicus data and information funded by the European Union - EU-DEM layers, Data available from Land Information New Zealand, Data available from data.gov.uk, Data courtesy Geoscience Australia.
+    </p>
+  `;
+    creditsPopup.style.cssText = `
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(40, 40, 40, 0.8);
+        border: 2px solid #333;
+        border-radius: 12px;
+        padding: 40px 60px;
+        min-width: 200px;
+        text-align: center;
+        z-index: 1000;
+    `;
+    // Append to the Cesium container so it sits on top of the map
+    cesiumContainer.appendChild(creditsPopup);
 
 }
 

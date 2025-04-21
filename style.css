@@ -199,11 +199,6 @@ body {
   text-align: center;
 }
 
-/* Trigger the fade-out
-#legendDiv #legendTitle.fade-out {
-  opacity: 0;
-} */
-
 #heightValue {
   display: inline-block;
   min-width: 100px; /* Adjust as needed */
