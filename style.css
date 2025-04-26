@@ -221,3 +221,111 @@ body {
 .collapsed {
   display: none;
 }
+
+/* Ensure primary legend items stack vertically */
+#primaryLegendItemsContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* Ensure alternative legend items stack vertically */
+
+#alternativeLegendItemsContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+#bottomLegendItemsContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* Override centered items for legend containers */
+#legendDiv > #primaryLegendItemsContainer {
+  align-items: flex-start;
+}
+
+#legendDiv > #alternativeLegendItemsContainer {
+  align-items: flex-start;
+}
+
+#legendDiv > #bottomLegendItemsContainer {
+  align-items: flex-start;
+}
+
+#bottomLegendItemsContainer > div,
+#primaryLegendItemsContainer > div,
+#alternativeLegendItemsContainer > div {
+  margin-bottom: 10px;
+}
+
+/* Hide bottom legend title and items wrapper when empty */
+#legendTitle:empty,
+#legendTitleContainer:empty,
+#alternativeLegendTitle:empty,
+#alternativeLegendTitleContainer:empty,
+#bottomLegendTitle:empty,
+#bottomLegendTitleContainer:empty {
+  display: none;
+}
+
+/* If there’s no title, hide the title <h4> and its container */
+#legendTitle:empty,
+#legendTitleContainer:empty {
+  display: none;
+}
+
+/* Style for separate “note” legend entries */
+.legend-note span {
+  font-size: 18px !important;
+  margin-left: 34px;  /* indent under the main label */
+  color: #ffffff;
+}
+
+/* Make the hidden placeholder occupy the same height/gap as a real entry */
+.legend-placeholder {
+  margin-bottom: 10px;
+}
+
+/* Collapse the alternative legend block when it’s empty */
+#alternativeLegendTitle:empty,
+#alternativeLegendTitleContainer:empty,
+#alternativeLegendItemsContainer:empty {
+  display: none !important;
+  margin-top: 0 !important;
+}
+
+/* Collapse the bottom legend block when it’s empty */
+#bottomLegendTitle:empty,
+#bottomLegendTitleContainer:empty,
+#bottomLegendItemsContainer:empty {
+  display: none !important;
+  margin-top: 0 !important;
+}
+
+/* Collapse the bottom legend block when it’s empty */
+#legendTitle:empty,
+#legendTitleContainer:empty,
+#legendItemsContainer:empty {
+  display: none !important;
+  margin-top: 0 !important;
+}
+
+/* Hide and reset spacing when there’s no alternative legend content */
+#alternativeLegendTitleContainer:has(> #alternativeLegendTitle:empty),
+#alternativeLegendItemsContainer:empty {
+  display: none !important;    /* completely remove from layout */
+  margin-top: 0 !important;    /* override the inline 20px */
+}
+
+/* Hide and reset spacing when there’s no bottom legend content */
+#bottomLegendTitleContainer:has(> #bottomLegendTitle:empty),
+#bottomLegendItemsContainer:empty {
+  display: none !important;
+  margin-top: 0 !important;
+}
+
+#nlcColorbar { pointer-events: none; }

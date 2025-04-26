@@ -11,6 +11,7 @@ Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOi
 // --- Global variables ---
 let viewer;
 let legendTitleElement; // Variable to hold the legend title DOM element
+let appTitleElement;
 
 // -----------------------------------
 // Selectable options
@@ -19,7 +20,7 @@ let addSuitabilityLayers = true;
 let addGasPipelines = true;
 let addTransmissionLines = true;
 let addPowerPlantLayers = true;
-let addBuffer = false;
+let addBuffer = true;
 
 // true = smooth camera fly; false = instant jump with fade
 let useCameraFly = true;
@@ -36,6 +37,7 @@ let goDirectlyToRoi = false;
 
 // --- UI Elements (Grabbed once) ---
 const legendDiv = document.getElementById('legendDiv');
+const primaryLegendItemsContainer = document.getElementById('primaryLegendItemsContainer');
 const pitchSlider = document.getElementById("pitchSlider");
 const headingSlider = document.getElementById("headingSlider");
 const pitchValue = document.getElementById("pitchValue");
@@ -175,7 +177,7 @@ function addLegendItem(id, title, symbolHtml, clearPreviousItems = false, exclud
         item.innerHTML = `${symbolHtml} <span></span>`;
         item.querySelector('span').textContent = title; // Safer way to set text
 
-        legendDiv.appendChild(item);
+        primaryLegendItemsContainer.appendChild(item);
         legendItems[id] = item; // Track the added item
     } else {
         // Optional: What to do if item with same ID already exists?
@@ -184,24 +186,13 @@ function addLegendItem(id, title, symbolHtml, clearPreviousItems = false, exclud
     }
 }
 
-// removeLegendItem function remains the same...
 function removeLegendItem(id) {
-    // Sanitize ID to match how it was created
-    const domId = `legend-item-${id.replace(/[^a-zA-Z0-9\-_]/g, '-')}`;
-    const itemElement = document.getElementById(domId);
-    if (itemElement) {
-        try {
-            // Check if parentNode exists before removing
-            if (itemElement.parentNode === legendDiv) {
-                 legendDiv.removeChild(itemElement);
-            } else {
-                 console.warn(`Attempted to remove legend item '${id}' but it was not a direct child of legendDiv.`);
-            }
-        } catch (e) {
-            console.warn(`Error removing legend item '${id}' from DOM:`, e);
-        }
-        delete legendItems[id]; // Remove from tracking object regardless of DOM removal success/failure
-    }
+  const domId = `legend-item-${id.replace(/[^a-zA-Z0-9\-_]/g, '-')}`;
+  const itemElement = document.getElementById(domId);
+  if (itemElement) {
+      itemElement.parentNode.removeChild(itemElement);
+      delete legendItems[id];
+  }
 }
 
 
@@ -547,9 +538,7 @@ async function startCesium() {
 
         // --- Get Legend Title Element Reference ---
         legendTitleElement = document.getElementById('legendTitle');
-        if (!legendTitleElement) {
-            console.error("Legend title element with ID 'legendTitle' not found! Check index.html.");
-        }
+        appTitleElement = document.getElementById('legendHeaderTitle');
 
         // --- Attach Event Listeners and UI Logic that depends on 'viewer' ---
         // Legend Listeners
@@ -679,85 +668,348 @@ sequenceButton.addEventListener("click", async () => {
  * @param {number} durationSeconds                – how long to random‑move before settling
  * @returns {Promise<void>}                       – resolves once the highlight is in place
  */
-function animateRandomHighlight(viewerInstance, nlcDs, pptDs, durationSeconds, maskRect) {
-    // If a mask rectangle is provided, filter to only those NLC entities whose bounding rect intersects it
+// Updated async implementation of animateRandomHighlight
+async function animateRandomHighlight(viewerInstance, nlcDs, pptDs, durationSeconds, maskRect, showRect) {
+    // Ensure NLC layer is visible and plant layer hidden during highlight
+    nlcDs.show = true;
+    pptDs.show = false;
+
+    // Remove old label if it exists
+    const oldLabel = viewerInstance.entities.getById('showRectLabel');
+    if (oldLabel) {
+        viewerInstance.entities.remove(oldLabel);
+    }
+
+    const boxFont = '26px sans-serif';
+    const boxAlpha = 0.8;
+
+    // Add a text label above the top border of the mask rectangle
+    viewerInstance.entities.add({
+        id: 'showRectLabel',
+        position: Cesium.Cartesian3.fromRadians(
+        (showRect.west + showRect.east) / 2,
+        showRect.north,
+        0
+        ),
+        label: {
+        text: 'Explore Focal Region',
+        font: boxFont,
+        fillColor: Cesium.Color.WHITE,
+        showBackground: true,
+        backgroundColor: Cesium.Color.BLACK.withAlpha(boxAlpha),
+        backgroundPadding: new Cesium.Cartesian2(4, 4),
+        style: Cesium.LabelStyle.FILL,
+        verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+        heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+        pixelOffset: new Cesium.Cartesian2(0, -5)
+        }
+    });
+
+    // Add NLC colorbar overlay when NLC label appears
+    const colorbarDiv = document.createElement('div');
+    colorbarDiv.id = 'nlcColorbar';
+    // Compute midpoint of the rectangle’s bottom edge
+    const midLon = (showRect.west + showRect.east) / 2;
+    const midLat = showRect.south;
+    const groundPos = Cesium.Cartesian3.fromRadians(midLon, midLat, 0);
+    const screenPos = viewerInstance.scene.cartesianToCanvasCoordinates(groundPos);
+
+    // Style & position the bar
+    Object.assign(colorbarDiv.style, {
+        position: 'absolute',
+        pointerEvents: 'none',
+        width: '200px',
+        height: '20px',
+        background: 'linear-gradient(to right, #1AFF1A, #4B0092)',
+        border: '1px solid #ffffff',
+        left:   (screenPos.x - 100) + 'px',  // center under rect
+        top:    (screenPos.y +   5) + 'px',  // just below the outline
+        zIndex: '999'
+    });
+    cesiumContainer.appendChild(colorbarDiv);
+
+    // Add labels for the colorbar
+    const lowerLabel = document.createElement('div');
+    lowerLabel.id = 'nlcColorbarLower';
+    lowerLabel.textContent = 'Lower\nCosts';
+    Object.assign(lowerLabel.style, {
+      position: 'absolute',
+      pointerEvents: 'none',
+      color: '#ffffff',
+      fontSize: '16px',
+      left: `${screenPos.x - 195}px`,  // 10px to the left of the bar start
+      top: `${screenPos.y + 5}px`      // same vertical position as the bar
+    });
+    cesiumContainer.appendChild(lowerLabel);
+
+    const higherLabel = document.createElement('div');
+    higherLabel.id = 'nlcColorbarHigher';
+    higherLabel.textContent = 'Higher\nCosts';
+    Object.assign(higherLabel.style, {
+      position: 'absolute',
+      pointerEvents: 'none',
+      color: '#ffffff',
+      fontSize: '16px',
+      left: `${screenPos.x + 100 + 10}px`,  // 10px to the right of the bar end (bar width = 200)
+      top: `${screenPos.y + 5}px`
+    });
+    cesiumContainer.appendChild(higherLabel);
+
+    // 1. Filter to NLC polygons inside the mask rectangle (suitable areas)
     let entitiesToUse = nlcDs.entities.values;
     if (maskRect) {
         entitiesToUse = entitiesToUse.filter(ent => {
             const coords = ent.polygon.hierarchy.getValue(Cesium.JulianDate.now()).positions;
             const cellRect = Cesium.Rectangle.fromCartesianArray(coords);
+            // Only include polygons that intersect the maskRect (inside the mask)
             return Cesium.Rectangle.intersection(cellRect, maskRect) !== undefined;
         });
     }
-    return new Promise(resolve => {
-        // 1. Sample one NLC cell to get its width/height
-        const sample = entitiesToUse[0];
-        const sampleCartesians = sample.polygon.hierarchy.getValue(Cesium.JulianDate.now()).positions;
-        const sampleRect       = Cesium.Rectangle.fromCartesianArray(sampleCartesians);
-        const cellW = sampleRect.east  - sampleRect.west;
-        const cellH = sampleRect.north - sampleRect.south;
 
-        // 2. Compute the full NLC extent
-        let minW = Infinity, maxE = -Infinity, minS = Infinity, maxN = -Infinity;
-        entitiesToUse.forEach(ent => {
-            const coords = ent.polygon.hierarchy.getValue(Cesium.JulianDate.now()).positions;
-            const r = Cesium.Rectangle.fromCartesianArray(coords);
-            minW = Math.min(minW, r.west);
-            maxE = Math.max(maxE, r.east);
-            minS = Math.min(minS, r.south);
-            maxN = Math.max(maxN, r.north);
+    // Only display the filtered NLC polygons
+    nlcDs.entities.values.forEach(ent => {
+        ent.show = false;
+    });
+    entitiesToUse.forEach(ent => {
+        ent.show = true;
+    });
+
+    // Step 1: Hide NLC polygons overlapping suitability layers; show only those fully in suitable areas
+    // Gather all suitability data sources (named id_suitability0…id_suitability14)
+    const suitabilitySources = [];
+    for (let i = 0; i <= 14; i++) {
+        const ds = viewerInstance.dataSources.getByName(`id_suitability${i}`)[0];
+        if (ds) suitabilitySources.push(ds);
+    }
+    entitiesToUse.forEach(ent => {
+        const coords = ent.polygon.hierarchy.getValue(Cesium.JulianDate.now()).positions;
+        const cellRect = Cesium.Rectangle.fromCartesianArray(coords);
+        // Check intersection with any suitability polygon
+        let overlapsSuitability = false;
+        suitabilitySources.forEach(suitDs => {
+            suitDs.entities.values.forEach(suitEnt => {
+                const suitCoords = suitEnt.polygon.hierarchy.getValue(Cesium.JulianDate.now()).positions;
+                const suitRect = Cesium.Rectangle.fromCartesianArray(suitCoords);
+                if (Cesium.Rectangle.intersection(cellRect, suitRect) !== undefined) {
+                    overlapsSuitability = true;
+                }
+            });
         });
+        if (overlapsSuitability) {
+            // Make overlapping polygons fully transparent
+            ent.polygon.material = Cesium.Color.TRANSPARENT;
+            ent.polygon.outline = false;
+        } else {
+            // Highlight only the suitable ones
+            ent.polygon.material = Cesium.Color.fromCssColorString('#4B0092').withAlpha(1.0);
+            ent.polygon.outline = true;
+            ent.polygon.outlineColor = Cesium.Color.WHITE;
+            ent.polygon.outlineWidth = 2;
+        }
+    });
 
-        // 3. Find which NLC cell contains the plant
-        const plantPos   = pptDs.entities.values[0].position.getValue(Cesium.JulianDate.now());
+    await new Promise(r => setTimeout(r, 5000));
+
+    // Step 2: Color remaining polygons from red to green based on their NLC value
+    // Remove any previous 'showRectLabel' to avoid duplicates
+    const oldLabel2 = viewerInstance.entities.getById('showRectLabel');
+    if (oldLabel2) {
+        viewerInstance.entities.remove(oldLabel2);
+    }
+    // Add updated label for Economic Costs
+    viewerInstance.entities.add({
+        id: 'showRectLabel',
+        position: Cesium.Cartesian3.fromRadians(
+            (showRect.west + showRect.east) / 2,
+            showRect.north,
+            0
+        ),
+        label: {
+            text: 'Net Locational Costs (NLC)',
+            font: boxFont,
+            fillColor: Cesium.Color.WHITE,
+            showBackground: true,
+            backgroundColor: Cesium.Color.BLACK.withAlpha(boxAlpha),
+            backgroundPadding: new Cesium.Cartesian2(4, 4),
+            style: Cesium.LabelStyle.FILL,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+            pixelOffset: new Cesium.Cartesian2(0, -5)
+        }
+    });
+
+    const values = entitiesToUse.map(ent => ent.properties.NLC.getValue(Cesium.JulianDate.now()));
+    const minVal = Math.min(...values);
+    const maxVal = Math.max(...values);
+    entitiesToUse.forEach(ent => {
+        const val = ent.properties.NLC.getValue(Cesium.JulianDate.now());
+        const t = (val - minVal) / (maxVal - minVal);
+        const color = new Cesium.Color();
+        Cesium.Color.lerp(
+            // color blind friendlly
+            Cesium.Color.fromCssColorString('#1AFF1A'), // bright green
+            Cesium.Color.fromCssColorString('#4B0092'), // dark purple
+            t, 
+            color
+        );
+        ent.polygon.material = color.withAlpha(0.8);
+        ent.polygon.outline = true;
+        ent.polygon.outlineWidth = 4;
+    });
+    await new Promise(r => setTimeout(r, 5000));
+
+    // Step 3: Identify top 20% most negative (lowest) NLC values
+    const sorted = entitiesToUse.slice().sort((a, b) => {
+        return a.properties.NLC.getValue(Cesium.JulianDate.now()) - b.properties.NLC.getValue(Cesium.JulianDate.now());
+    });
+    const cutoffIndex = Math.floor(sorted.length * 0.20);
+    const cutoffVal = sorted[cutoffIndex]?.properties.NLC.getValue(Cesium.JulianDate.now()) ?? minVal;
+
+    // Remove any previous 'showRectLabel' to avoid duplicates
+    const oldLabel5 = viewerInstance.entities.getById('showRectLabel');
+    if (oldLabel5) {
+        viewerInstance.entities.remove(oldLabel5);
+    }
+    // Add updated label for Economic Costs
+    viewerInstance.entities.add({
+        id: 'showRectLabel',
+        position: Cesium.Cartesian3.fromRadians(
+            (showRect.west + showRect.east) / 2,
+            showRect.north,
+            0
+        ),
+        label: {
+            text: 'Lowest NLC',
+            font: boxFont,
+            fillColor: Cesium.Color.WHITE,
+            showBackground: true,
+            backgroundColor: Cesium.Color.BLACK.withAlpha(boxAlpha),
+            backgroundPadding: new Cesium.Cartesian2(4, 4),
+            style: Cesium.LabelStyle.FILL,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+            pixelOffset: new Cesium.Cartesian2(0, -5)
+        }
+    });
+
+    // Step 4: Color top 5% green, others red with white borders    
+    entitiesToUse.forEach(ent => {
+        const val = ent.properties.NLC.getValue(Cesium.JulianDate.now());
+        if (val <= cutoffVal) {
+            ent.polygon.material = Cesium.Color.fromCssColorString('#1AFF1A').withAlpha(0.6);
+        } else {
+            ent.polygon.material = Cesium.Color.fromCssColorString('#4B0092').withAlpha(0.6);
+        }
+        ent.polygon.outline = true;
+        ent.polygon.outlineColor = Cesium.Color.WHITE;
+        ent.polygon.outlineWidth = 4;
+    });
+    await new Promise(r => setTimeout(r, 5000));
+
+    // Step 5: Run the random highlight animation over just the top 20% for 5000 ms,
+    // but only on polygons that do not intersect any suitability layers
+    const oldLabel3 = viewerInstance.entities.getById('showRectLabel');
+    if (oldLabel3) {
+        viewerInstance.entities.remove(oldLabel3);
+    }
+    viewerInstance.entities.add({
+        id: 'showRectLabel',
+        position: Cesium.Cartesian3.fromRadians(
+            (showRect.west + showRect.east) / 2,
+            showRect.north,
+            0
+        ),
+        label: {
+            text: 'Finding Optimal Location',
+            font: boxFont,
+            fillColor: Cesium.Color.WHITE,
+            showBackground: true,
+            backgroundColor: Cesium.Color.BLACK.withAlpha(boxAlpha),
+            backgroundPadding: new Cesium.Cartesian2(4, 4),
+            style: Cesium.LabelStyle.FILL,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+            pixelOffset: new Cesium.Cartesian2(0, -5)
+        }
+    });
+
+    const topCount = Math.ceil(entitiesToUse.length * 0.20);
+    const candidateEntities = sorted.slice(0, topCount);
+    let topEntities = candidateEntities.filter(ent => {
+        const coords = ent.polygon.hierarchy.getValue(Cesium.JulianDate.now()).positions;
+        const cellRect = Cesium.Rectangle.fromCartesianArray(coords);
+        // Exclude any entity overlapping a suitability polygon
+        return !suitabilitySources.some(suitDs =>
+            suitDs.entities.values.some(suitEnt => {
+                const suitCoords = suitEnt.polygon.hierarchy.getValue(Cesium.JulianDate.now()).positions;
+                const suitRect = Cesium.Rectangle.fromCartesianArray(suitCoords);
+                return Cesium.Rectangle.intersection(cellRect, suitRect) !== undefined;
+            })
+        );
+    });
+    // If no polygons pass the suitability filter, fall back to the top 20% candidates
+    if (topEntities.length === 0) {
+        topEntities = candidateEntities;
+    }
+    if (topEntities.length > 0) {
+        // Sample rect and target rect logic
+        const sample = topEntities[0];
+        const sampleCartesians = sample.polygon.hierarchy.getValue(Cesium.JulianDate.now()).positions;
+        const sampleRect = Cesium.Rectangle.fromCartesianArray(sampleCartesians);
+
+        const plantPos = pptDs.entities.values[0].position.getValue(Cesium.JulianDate.now());
         const plantCarto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(plantPos);
         let targetRect = sampleRect;
-        entitiesToUse.some(ent => {
+        topEntities.forEach(ent => {
             const coords = ent.polygon.hierarchy.getValue(Cesium.JulianDate.now()).positions;
-            const r      = Cesium.Rectangle.fromCartesianArray(coords);
+            const r = Cesium.Rectangle.fromCartesianArray(coords);
             if (Cesium.Rectangle.contains(r, plantCarto)) {
                 targetRect = r;
-                return true;
             }
-            return false;
         });
 
-        // 4. Add a semi‑transparent white rectangle with a thicker outline
+        // Create highlight rectangle
         const highlight = viewerInstance.entities.add({
             id: 'randomRectHighlight',
             rectangle: {
                 coordinates: sampleRect,
-                material:      Cesium.Color.RED.withAlpha(1.0),
-                outline:       true,
-                outlineColor:  Cesium.Color.WHITE,
-                outlineWidth:  6,
-                height:        1000,
-                heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
+                material: Cesium.Color.WHITE.withAlpha(0.4),           // visible semi-transparent fill
+                outline: true,
+                outlineColor: Cesium.Color.WHITE.withAlpha(1.0),      
+                outlineWidth: 7,                                       // slightly thicker for visibility
+                heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+                height: 100
             }
         });
+        // Ensure highlight is visible
+        highlight.show = true;
 
-        // 5. Every 200 ms, jump to a random cell until time’s up, then settle.
-        const stepMs   = 200;
-        const steps    = durationSeconds * 1000 / stepMs;
-        let   current  = 0;
+        const stepMs = 200;
+        const totalSteps = 5000 / stepMs;
+        let currentStep = 0;
         const handle = setInterval(() => {
-            if (++current >= steps) {
+            if (++currentStep >= totalSteps) {
                 clearInterval(handle);
                 highlight.rectangle.coordinates = targetRect;
-                // Turn the highlight green once it settles on the target
-                highlight.rectangle.material = Cesium.Color.GREEN.withAlpha(1.0);
-                highlight.rectangle.outlineColor = Cesium.Color.WHITE;
-                highlight.rectangle.outlineWidth = 20;
-
-                resolve();
+                // Bring highlight to top by re-adding it
+                viewerInstance.entities.remove(highlight);
+                viewerInstance.entities.add(highlight);
             } else {
-                const w = minW  + Math.random() * (maxE - minW - cellW);
-                const s = minS  + Math.random() * (maxN - minS - cellH);
-                const randR = new Cesium.Rectangle(w, s, w + cellW, s + cellH);
-                highlight.rectangle.coordinates = randR;
+                const randEnt = topEntities[Math.floor(Math.random() * topEntities.length)];
+                const randCoords = randEnt.polygon.hierarchy.getValue(Cesium.JulianDate.now()).positions;
+                highlight.rectangle.coordinates = Cesium.Rectangle.fromCartesianArray(randCoords);
+                // Bring highlight to top by re-adding it
+                viewerInstance.entities.remove(highlight);
+                viewerInstance.entities.add(highlight);
             }
         }, stepMs);
-    });
+
+        await new Promise(r => setTimeout(r, 5000));
+
+        viewerInstance.entities.remove(highlight);
+
+    }
+
 }
 
 // Fly-to Implementation
@@ -793,7 +1045,7 @@ function flyToLocation(
   }
 
 
-function changeLegendTitleFadeIn(newTitle, durationMs = 500) { // Duration for the fade-in part
+function changeLegendTitleFadeIn(newTitle, leftStyle='', durationMs = 500, upperPad = '</br>') { // Duration for the fade-in part
     if (!legendTitleElement) {
         console.warn("Legend title element not found for animation.");
         return;
@@ -808,12 +1060,12 @@ function changeLegendTitleFadeIn(newTitle, durationMs = 500) { // Duration for t
     // 2. Set opacity to 0 instantly (no transition happens)
     legendTitleElement.style.opacity = 0;
 
-    // 3. Change the text content *immediately* after hiding.
+    // 3. Change the HTML content *immediately* after hiding.
     // We use a very short setTimeout (or could use requestAnimationFrame)
     // to allow the browser to process the opacity change before we
     // potentially re-enable transitions.
     setTimeout(() => {
-        legendTitleElement.textContent = newTitle;
+        legendTitleElement.innerHTML = upperPad + leftStyle + '<span style="vertical-align:middle;">' + newTitle + '</span>';
 
         // 4. Force browser reflow (optional but can help ensure order)
         // This makes sure the browser 'sees' the opacity = 0 state
@@ -1009,17 +1261,26 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
         'id_suitability14', 
     ];
 
+    const legendNotation = '<div class="legend-symbol" style="background-color:black; border:1px solid black; width:7px; height:1px; display:inline-block; margin-right:8px; vertical-align:middle;"></div>';
+
+
     if (addSuitabilityLayers) {
 
+        // Update main application title in legend
+        appTitleElement.textContent = 'Evaluating Siting Areas';
+
         // Update title
-        changeLegendTitleFadeIn("Unsuitable Gas Plant Area");
+        changeLegendTitleFadeIn(
+            "Unsuitable Gas Plant Areas",
+            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff; display:inline-block; margin-right:8px; vertical-align:middle;"></div>'
+        );
 
         const suitability0 = await addLayerSequentially(
             viewer,
             () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/lakes_reserv_clipped.geojson', polygonOptions),
             'id_suitability0',
             'Lakes, Reservoirs, and other Water Bodies',
-            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            legendNotation,
             suitabilityDelayMs
         );
         
@@ -1029,7 +1290,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/airports_clipped.geojson', polygonOptions),
             'id_suitability1',
             'Airport Areas',
-            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            legendNotation,
             suitabilityDelayMs
         );
         
@@ -1039,7 +1300,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/slope_clipped.geojson', polygonOptions),
             'id_suitability2',
             'Slope Exceedance',
-            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            legendNotation,
             suitabilityDelayMs
         );
         
@@ -1049,7 +1310,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/cooling_water_clipped.geojson', polygonOptions),
             'id_suitability3',
             'Inadequate Cooling Water Supply',
-            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            legendNotation,
             suitabilityDelayMs
         );
         
@@ -1059,7 +1320,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/population_clipped.geojson', polygonOptions),
             'id_suitability4',
             'Densely Populated Areas',
-            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            legendNotation,
             suitabilityDelayMs
         );
         
@@ -1069,7 +1330,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/flood_risk_clipped.geojson', polygonOptions),
             'id_suitability5',
             'Areas with High Flood Risk',
-            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            legendNotation,
             suitabilityDelayMs
         );
         
@@ -1079,7 +1340,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/wilderness_study_areas_clipped.geojson', polygonOptions),
             'id_suitability6',
             'Wilderness Study Areas',
-            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            legendNotation,
             suitabilityDelayMs
         );
         
@@ -1089,7 +1350,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/historic_trails_clipped.geojson', polygonOptions),
             'id_suitability7',
             'National Historic Trails',
-            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            legendNotation,
             suitabilityDelayMs
         );
         
@@ -1099,7 +1360,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/national_desig_areas_clipped.geojson', polygonOptions),
             'id_suitability8',
             'USFS Nationally Designated Areas',
-            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            legendNotation,
             suitabilityDelayMs
         );
         
@@ -1109,7 +1370,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/bor_management_areas_clipped.geojson', polygonOptions),
             'id_suitability9',
             'USBOR Management Areas',
-            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            legendNotation,
             suitabilityDelayMs
         );
         
@@ -1119,7 +1380,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/wetlands_clipped.geojson', polygonOptions),
             'id_suitability10',
             'Wetlands',
-            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            legendNotation,
             suitabilityDelayMs
         );
         
@@ -1129,7 +1390,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/nat_reg_property_clipped.geojson', polygonOptions),
             'id_suitability11',
             'National Register Properties',
-            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            legendNotation,
             suitabilityDelayMs
         );
         
@@ -1139,7 +1400,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/spec_rec_management_clipped.geojson', polygonOptions),
             'id_suitability12',
             'Special Recreation Management Areas',
-            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            legendNotation,
             suitabilityDelayMs
         );
         
@@ -1149,7 +1410,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/visual_resource_clipped.geojson', polygonOptions),
             'id_suitability13',
             'Visual Resource Management Areas',
-            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            legendNotation,
             suitabilityDelayMs
         );
         
@@ -1159,22 +1420,45 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             () => Cesium.GeoJsonDataSource.load('./data/geojson/suitability/other_protected_areas_clipped.geojson', polygonOptions),
             'id_suitability14',
             '40 Other Exclusion Layers',
-            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>',
+            legendNotation,
             suitabilityDelayMs
         );
         
     }
+
+    
+    // Initialize Alternative Legend Section
+    const alternativeLegendTitleElement = document.getElementById('alternativeLegendTitle');
+    const alternativeLegendItemsContainer = document.getElementById('alternativeLegendItemsContainer');
+    const bottomLegendTitleElement = document.getElementById('bottomLegendTitle');
+    const bottomLegendItemsContainer = document.getElementById('bottomLegendItemsContainer');
+
+    if (alternativeLegendTitleElement && alternativeLegendItemsContainer) {
+        alternativeLegendTitleElement.innerHTML = '<span style="vertical-align:middle;">Infrastructure</span>';
+    } else {
+        console.error("Alternative legend containers not found.");
+    }
+
     // --------------------------------------------------------------------------------
     // ADD GAS PIPELINES LAYER
     // --------------------------------------------------------------------------------
+    // Update main application title in legend
+    appTitleElement.textContent = 'Power Plant Infrastructure';
+
     if (addGasPipelines){
 
         // Add gas pipelines lines layer to the legend with a dotted symbol
-        addLegendItem(
-            'pipelines_clipped',
-            'Gas Pipelines',
-            '<div class="legend-symbol" style="width:20px; height:0px; border-bottom:2px dashed aqua;"></div>'
-        );
+        if (alternativeLegendItemsContainer) {
+            const item = document.createElement('div');
+            item.className = 'legend-item';
+            item.innerHTML = `
+                <div class="legend-symbol" style="width:20px; height:0px; border-bottom:2px dashed aqua; display:inline-block; margin-right:8px; vertical-align:middle;"></div>
+                <span style="vertical-align:middle;">Gas Pipelines</br></span>
+            `;
+            alternativeLegendItemsContainer.appendChild(item);
+        } else {
+            console.error("Alternative legend container not found for pipelines.");
+        }
         // Load all gas pipelines clamped to ground
         const pipelineDs = await Cesium.GeoJsonDataSource.load('./data/geojson/wyoming_clip_pipelines.geojson', {
             clampToGround: true
@@ -1200,12 +1484,20 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     // ADD TRANSMISSION LINES LAYER
     // --------------------------------------------------------------------------------
     if (addTransmissionLines){
-        // Add transmission lines layer to the legend
-        addLegendItem(
-            'transmission_clipped',
-            'Transmission Lines',
-            '<div class="legend-symbol" style="background-color:orange; width:20px; height:2px;"></div>'
-        );
+        // Add transmission lines layer to the alternative legend
+        if (alternativeLegendItemsContainer) {
+            const item = document.createElement('div');
+            const domId = 'legend-item-transmission_clipped';
+            item.id = domId;
+            item.innerHTML = `
+                <div class="legend-symbol" style="background-color:orange; width:20px; height:2px;"></div>
+                <span style="vertical-align:middle;">Transmission Lines</span>
+            `;
+            alternativeLegendItemsContainer.appendChild(item);
+            legendItems['transmission_clipped'] = item;
+        } else {
+            console.error("Alternative legend container not found for transmission lines.");
+        }
         // Load all transmission lines clamped to ground
         const transmissionDs = await Cesium.GeoJsonDataSource.load('./data/geojson/wyoming_clip_transmission.geojson', {
             clampToGround: true
@@ -1226,252 +1518,352 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     // --------------------------------------------------------------------------------
     // ADD POWER PLANT LAYERS
     // --------------------------------------------------------------------------------
+
+    // Update main application title in legend
+    appTitleElement.textContent = 'Site Power Plants';
+
     if (addPowerPlantLayers) {
-
-        // console.log("Transitioning to Power Plant phase...");
-        changeLegendTitleFadeIn("Projected Gas Plant Siting")
-
-        // remove suitability layers from legend
-        const removeLayers = [...suitabilityLayerIds];
-        clearSpecificLegendItems(removeLayers); // Clear old legend items
-        
-        addLegendItem(
-            'unsuitable_areas',
-            'Unsuitable Gas Plant Areas',
-            '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff;"></div>'
-        );
-        // Ensure “Unsuitable Gas Plant Areas” appears as the first entry under the header/icon
-        const uaItem = legendItems['unsuitable_areas'];
-        if (uaItem) {
-            const firstExisting = Array.from(legendDiv.children).find(el =>
-                el.id.startsWith('legend-item-') && el !== uaItem
-            );
-            if (firstExisting) {
-                legendDiv.insertBefore(uaItem, firstExisting);
-            } else {
-                // Fallback: just append if no other legend items exist
-                legendDiv.appendChild(uaItem);
-            }
+        // Define iconBase early so placeholders can use it
+        const iconBase = './data/markers/round_gas_icon.png';
+        // Set primary legend title for unsuitable areas
+        if (legendTitleElement) {
+            legendTitleElement.innerHTML = 
+              '<div class="legend-symbol" ' +
+              'style="background-color:rgba(0,0,0,0.5); ' +
+              'border:1px solid #fff; display:inline-block; ' +
+              'margin-right:8px; vertical-align:middle;"></div>' +
+              '<span style="vertical-align:middle;">Unsuitable Gas Plant Areas</span>';
+            // Add extra top margin to separate from previous content
+            legendTitleElement.style.marginTop = '28px';
         }
-
+        // Set bottom legend title for power plant phase
+        if (bottomLegendTitleElement) {
+            bottomLegendTitleElement.innerHTML = '<span style="vertical-align:middle;">Projected Gas Plant Siting</span>';
+        }
+        // Insert placeholder under the new bottom legend title
+        if (bottomLegendItemsContainer && bottomLegendItemsContainer.children.length === 0) {
+            const placeholder = document.createElement('div');
+            placeholder.id = 'legend-item-placeholder';
+            placeholder.classList.add('power-plant-legend-item', 'legend-placeholder');
+            placeholder.innerHTML = `
+                <img src="${iconBase}" class="legend-symbol-img"
+                    style="visibility:hidden; width:30px; height:30px;">
+                <span style="visibility:hidden; font-size:30px;">&nbsp;</span>
+            `;
+            bottomLegendItemsContainer.appendChild(placeholder);
+        }
+        // Clear old suitability legend entries
+        clearSpecificLegendItems(suitabilityLayerIds);
         // Short pause after clearing legend
         await new Promise(resolve => setTimeout(resolve, 1500)); 
 
         // --- Load Power Plant Layers (Loop through years) ---
         // console.log("Loading power plant layers...");
         const powerPlantYears = [2030, 2035, 2040, 2045, 2050];
-        const iconBase = './data/markers/round_gas_icon.png'; // Store base path
         let previousNlcYear = null;
+        // Track previous power plant legend to delay its removal until new one appears
+        let previousPlantLayerId = null;
 
         for (const year of powerPlantYears) {
- 
-            // Example usage: add the 2030 NLC layer
-            await addNlcLayer(year);
 
-            // Brief pause to let the new NLC layer render before removing the old one
-            // await new Promise(resolve => setTimeout(resolve, 1000));
-
-            // Now remove the old NLC layer to avoid a flashing gap
-            if (previousNlcYear !== null) {
-                removeLegendItem(`${previousNlcYear}_nlc`);
-                viewerInstance.dataSources
-                    .getByName(`${previousNlcYear}_nlc`)
-                    .forEach(ds => viewerInstance.dataSources.remove(ds, true));
+            // 1) If nothing is in the bottom legend yet, insert an invisible placeholder
+            if (bottomLegendItemsContainer && bottomLegendItemsContainer.children.length === 0) {
+                const placeholder = document.createElement('div');
+                placeholder.id = 'legend-item-placeholder';
+                placeholder.classList.add('power-plant-legend-item', 'legend-placeholder');
+                placeholder.innerHTML = `
+                <img src="${iconBase}" class="legend-symbol-img"
+                    style="visibility:hidden; width:30px; height:30px;">
+                <span style="visibility:hidden; font-size:30px;">&nbsp;</span>
+                `;
+                bottomLegendItemsContainer.appendChild(placeholder);
             }
-            previousNlcYear = year;
+                
+                let nlcDsForAnim;
+    
+                // Example usage: add the 2030 NLC layer
+                await addNlcLayer(year);
 
-            // Wait before adding the power plant layer
-            await new Promise(resolve => setTimeout(resolve, 2500));
+                // Brief pause to let the new NLC layer render before removing the old one
+                // await new Promise(resolve => setTimeout(resolve, 1000));
 
-            const filename = `./data/geojson/${year}_gas_plants_clipped.geojson`;
-            const layerId = `${year}_gas_plants_clipped`;
-            const legendTitle = `${year}`; // Legend entry is just the year
-            const legendSymbol = `<img src="${iconBase}" class="legend-symbol-img" alt="${year} Gas Plant">`; // Use icon in legend
-
-            // Define the list of legend item IDs to KEEP when clearing
-            const itemsToKeep = ['transmission_clipped', 'unsuitable_areas', 'pipelines_clipped', `${year}_nlc`];
-
-            // Call addLegendItem: clear items (true), but exclude itemsToKeep
-            addLegendItem(layerId, legendTitle, legendSymbol, true, itemsToKeep);
-
-            // Format legend text:  find the element we just added by its constructed ID
-            const legendDomId = `legend-item-${layerId.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
-            const legendElement = document.getElementById(legendDomId);
-            if (legendElement) {
-                legendElement.classList.add('power-plant-legend-item'); // Add the CSS class
-                const span = legendElement.querySelector('span');
-                if (span) {
-                    span.style.setProperty('font-size', '30px', 'important');
-                    span.style.setProperty('color', '#ffffff', 'important');
+                // Now remove the old NLC layer to avoid a flashing gap
+                if (previousNlcYear !== null) {
+                    removeLegendItem(`${previousNlcYear}_nlc`);
+                    viewerInstance.dataSources
+                        .getByName(`${previousNlcYear}_nlc`)
+                        .forEach(ds => viewerInstance.dataSources.remove(ds, true));
                 }
-                const img = legendElement.querySelector('img.legend-symbol-img');
-                if (img) {
-                    img.style.width = '30px';
-                    img.style.height = '30px';
+                previousNlcYear = year;
+
+                // Wait before adding the power plant layer
+                await new Promise(resolve => setTimeout(resolve, 1500));
+
+                const filename = `./data/geojson/${year}_gas_plants_clipped.geojson`;
+                const layerId = `${year}_gas_plants_clipped`;
+                // Remove any existing note legend items from previous years
+                Object.keys(legendItems)
+                    .filter(id => id.endsWith('-note'))
+                    .forEach(id => removeLegendItem(id));
+                const legendTitle = `${year}`; 
+                const legendSymbol = `<img src="${iconBase}" class="legend-symbol-img" alt="${year} Gas Plant">`; // Use icon in legend
+
+                // Add legend item for power plant layer and move to bottom legend
+                addLegendItem(layerId, legendTitle, legendSymbol);
+                // Move this power-plant legend entry into the bottom legend
+                const mainItem = legendItems[layerId];
+                if (mainItem && bottomLegendItemsContainer) {
+                    bottomLegendItemsContainer.appendChild(mainItem);
                 }
-                // console.log(`Added class 'power-plant-legend-item' to ${layerId}`);
-            }
-
-            // console.log(`Attempting to load layer: ${layerId}`);
-            // Call helper without pointOptions (user version still included it definitionally, but not in call)
-            const pptDataSource = await addLayerSequentially(
-                viewerInstance,
-                () => Cesium.GeoJsonDataSource.load(filename, { clampToGround: true }), 
-                layerId,
-                legendTitle,
-                legendSymbol,
-                2000, // 2-second delay
-                false // remove delay as it will cause the icon to appear after the default icon shows up
-            );
-            // Hide all power plant icons until after highlight animation
-            pptDataSource.show = false;
-
-            // Visibility and Styling Logic
-            if (pptDataSource) {
-                // console.log(`Successfully loaded ${layerId}. Applying styles...`);
-
-            // Compute 100 km buffer around this year's plant and display it
-            const plantEntity = pptDataSource.entities.values[0];
-            const plantPos = plantEntity.position.getValue(Cesium.JulianDate.now());
-            const plantCarto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(plantPos);
-            const bufferMeters = 15000;
-            const earthRadius = Cesium.Ellipsoid.WGS84.maximumRadius;
-            const angularDistance = bufferMeters / earthRadius;
-            
-            // Random offset so rectangles still contain the plant but are not centered
-            const maxLatOffset = angularDistance / 2;
-            const maxLonOffset = (angularDistance / Math.cos(plantCarto.latitude)) / 2;
-            const deltaLat = (Math.random() * 2 - 1) * maxLatOffset;
-            const deltaLon = (Math.random() * 2 - 1) * maxLonOffset;
-            const south = plantCarto.latitude - angularDistance;
-            const north = plantCarto.latitude + angularDistance;
-            const west = plantCarto.longitude - angularDistance / Math.cos(plantCarto.latitude);
-            const east = plantCarto.longitude + angularDistance / Math.cos(plantCarto.latitude);
-            // Apply the same random offset so the maskRect shifts identically
-            const maskRect = new Cesium.Rectangle(
-                west  + deltaLon,
-                south + deltaLat,
-                east  + deltaLon,
-                north + deltaLat
-            );
-            
-            // Compute a larger second “show” rectangle to contain intersecting polygons
-            const extraArea = 150 * 1e6;
-            const oldSide = 2 * bufferMeters;
-            const newSide = Math.sqrt(oldSide * oldSide + extraArea);
-            const extraDist = (newSide - oldSide) / 2;
-            const showBuffer = bufferMeters + extraDist;
-            const showAng = showBuffer / earthRadius;
-            const south2 = plantCarto.latitude - showAng + deltaLat;
-            const north2 = plantCarto.latitude + showAng + deltaLat;
-            const west2  = plantCarto.longitude - (showAng / Math.cos(plantCarto.latitude)) + deltaLon;
-            const east2  = plantCarto.longitude + (showAng / Math.cos(plantCarto.latitude)) + deltaLon;
-            const showRect = new Cesium.Rectangle(west2, south2, east2, north2);
-
-            // Draw the semi-transparent rectangle without outline
-            viewerInstance.entities.add({
-                id: 'showRectMask',
-                rectangle: {
-                  coordinates: showRect,
-                  material: Cesium.Color.BLACK.withAlpha(0.3),
-                  outline: false,
-                  height: 0,
-                  heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
+                // Remove the previous year's legend once the new one is added
+                if (previousPlantLayerId) {
+                    removeLegendItem(previousPlantLayerId);
+                    removeLegendItem(`${previousPlantLayerId}-note`);
                 }
-            });
-            // Draw a separate polyline to outline the rectangle with thicker width
-            viewerInstance.entities.add({
-                id: 'showRectOutline',
-                polyline: {
-                    positions: Cesium.Cartesian3.fromRadiansArray([
-                        showRect.west, showRect.south,
-                        showRect.east, showRect.south,
-                        showRect.east, showRect.north,
-                        showRect.west, showRect.north,
-                        showRect.west, showRect.south
-                    ]),
-                    width: 3,
-                    material: Cesium.Color.WHITE,
-                    clampToGround: false,
-                    heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
-                }
-            });
+                // Update previousPlantLayerId to current
+                previousPlantLayerId = layerId;
 
-            // Animate random box that converges on power plant location
-            await animateRandomHighlight(
-                viewerInstance,
-                viewerInstance.dataSources.getByName(`${year}_nlc`)[0],
-                pptDataSource,
-                10.0,
-                maskRect
-            );
+                // 2) Once the real entry is in place, remove the placeholder
+                removeLegendItem('placeholder');
 
-            // Brief pause before citing the power plant icon
-            await new Promise(resolve => setTimeout(resolve, 2000));
-
-            // Ensure current data source is visible
-            // (Removed: pptDataSource.show = true;)
-
-            // Wait one second, then clean up both rectangles before moving on
-            await new Promise(r => setTimeout(r, 1000));
-                ['showRectMask','showRectOutline','randomRectHighlight']
-                .forEach(id => {
-                const e = viewerInstance.entities.getById(id);
-                if (e) viewerInstance.entities.remove(e);
-            });
-
-            // Apply styling to billboards
-            pptDataSource.entities.values.forEach(function(entity) {
-
-                if (Cesium.defined(entity.billboard)) {
-                    // Lift each icon to a fixed 5000 m altitude
-                    const origPos = entity.position.getValue(Cesium.JulianDate.now());
-                    const carto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(origPos);
-                    const lon = Cesium.Math.toDegrees(carto.longitude);
-                    const lat = Cesium.Math.toDegrees(carto.latitude);
-                    const height = 5000; // meters above ellipsoid
-                    entity.position = new Cesium.ConstantPositionProperty(
-                        Cesium.Cartesian3.fromDegrees(lon, lat, height)
+                // Then, immediately afterward for 2035 & 2045:
+                if (year === 2035 || year === 2045) {
+                    addLegendItem(
+                        `${layerId}-note`,
+                        '*No new siting for this year in the area being viewed',
+                        ''           // no symbol
                     );
-                    // Style the billboard
-                    entity.billboard.image = iconBase;
-                    entity.billboard.heightReference = Cesium.HeightReference.NONE;
-                    entity.billboard.verticalOrigin = Cesium.VerticalOrigin.CENTER;
-                    entity.billboard.horizontalOrigin = Cesium.HorizontalOrigin.CENTER;
-                    entity.billboard.scale = 0.025; // icon size
-                    entity.billboard.disableDepthTestDistance = Number.POSITIVE_INFINITY;
-                } else if (Cesium.defined(entity.point)) {
-                    entity.point.pixelSize = 8;
-                    entity.point.color = Cesium.Color.ORANGE;
-                    entity.point.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
-                } else {
-                    console.warn(`Entity in ${year} layer is not a billboard or point: ${entity.id || year}`);
+                    // Tag it for styling:
+                    const noteItem = legendItems[`${layerId}-note`];
+                    if (noteItem) {
+                        noteItem.classList.add('legend-note');
+                    }
+                    // Move this note entry into the bottom legend
+                    const noteMain = legendItems[`${layerId}-note`];
+                    if (noteMain && bottomLegendItemsContainer) {
+                        bottomLegendItemsContainer.appendChild(noteMain);
+                    }
                 }
+
+                // Format legend text:  find the element we just added by its constructed ID
+                const legendDomId = `legend-item-${layerId.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+                const legendElement = document.getElementById(legendDomId);
+                if (legendElement) {
+                    legendElement.classList.add('power-plant-legend-item'); // Add the CSS class
+                    const span = legendElement.querySelector('span');
+                    if (span) {
+                        span.style.setProperty('font-size', '30px', 'important');
+                        span.style.setProperty('color', '#ffffff', 'important');
+                    }
+                    const img = legendElement.querySelector('img.legend-symbol-img');
+                    if (img) {
+                        img.style.width = '30px';
+                        img.style.height = '30px';
+                    }
+                }
+
+                // Call helper without pointOptions (user version still included it definitionally, but not in call)
+                const pptDataSource = await addLayerSequentially(
+                    viewerInstance,
+                    () => Cesium.GeoJsonDataSource.load(filename, {
+                        clampToGround: true,
+                        markerSize: 0      // <-- turn off the default billboard
+                    }),
+                    layerId,
+                    legendTitle,
+                    legendSymbol,
+                    2000,
+                    false
+                );
+                // Hide all power plant icons until after highlight animation
+                pptDataSource.show = false;
+
+                // Visibility and Styling Logic
+                if (pptDataSource) {
+
+                    if (year === 2030) {
+    
+                        // Compute 100 km buffer around this year's plant and display it
+                        const plantEntity = pptDataSource.entities.values[0];
+                        const plantPos = plantEntity.position.getValue(Cesium.JulianDate.now());
+                        const plantCarto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(plantPos);
+                        const bufferMeters = 20000;
+                        const earthRadius = Cesium.Ellipsoid.WGS84.maximumRadius;
+                        const angularDistance = bufferMeters / earthRadius;
+                        
+                        // Random offset so rectangles still contain the plant but are not centered
+                        const maxLatOffset = angularDistance / 2;
+                        const maxLonOffset = (angularDistance / Math.cos(plantCarto.latitude)) / 2;
+                        const deltaLat = (Math.random() * 2 - 1) * maxLatOffset;
+                        const deltaLon = (Math.random() * 2 - 1) * maxLonOffset;
+                        const south = plantCarto.latitude - angularDistance;
+                        const north = plantCarto.latitude + angularDistance;
+                        const west = plantCarto.longitude - angularDistance / Math.cos(plantCarto.latitude);
+                        const east = plantCarto.longitude + angularDistance / Math.cos(plantCarto.latitude);
+                        // Apply the same random offset so the maskRect shifts identically
+                        const maskRect = new Cesium.Rectangle(
+                            west  + deltaLon,
+                            south + deltaLat,
+                            east  + deltaLon,
+                            north + deltaLat
+                        );
+                
+                        // Compute a larger second “show” rectangle to contain intersecting polygons
+                        const extraArea = 200 * 1e6;
+                        const oldSide = 2 * bufferMeters;
+                        const newSide = Math.sqrt(oldSide * oldSide + extraArea);
+                        const extraDist = (newSide - oldSide) / 2;
+                        const showBuffer = bufferMeters + extraDist;
+                        const showAng = showBuffer / earthRadius;
+                        const south2 = plantCarto.latitude - showAng + deltaLat;
+                        const north2 = plantCarto.latitude + showAng + deltaLat;
+                        const west2  = plantCarto.longitude - (showAng / Math.cos(plantCarto.latitude)) + deltaLon;
+                        const east2  = plantCarto.longitude + (showAng / Math.cos(plantCarto.latitude)) + deltaLon;
+                        const showRect = new Cesium.Rectangle(west2, south2, east2, north2);
+
+                        // Draw the semi-transparent rectangle without outline
+                        viewerInstance.entities.add({
+                            id: 'showRectMask',
+                            rectangle: {
+                            coordinates: showRect,
+                            material: Cesium.Color.BLACK.withAlpha(0.3),
+                            outline: false,
+                            height: 0,
+                            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
+                            }
+                        });
+
+                        // Draw a separate polyline to outline the rectangle with thicker width
+                        viewerInstance.entities.add({
+                            id: 'showRectOutline',
+                            polyline: {
+                                positions: Cesium.Cartesian3.fromRadiansArray([
+                                    showRect.west, showRect.south,
+                                    showRect.east, showRect.south,
+                                    showRect.east, showRect.north,
+                                    showRect.west, showRect.north,
+                                    showRect.west, showRect.south
+                                ]),
+                                width: 3,
+                                material: Cesium.Color.WHITE,
+                                clampToGround: false,
+                                heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
+                            }
+                        });
+
+                        // Animate random box that converges on power plant location
+                        nlcDsForAnim = viewerInstance.dataSources.getByName(`${year}_nlc`)[0];
+                        await animateRandomHighlight(
+                            viewerInstance,
+                            nlcDsForAnim,
+                            pptDataSource,
+                            10.0,
+                            maskRect,
+                            showRect
+                        );
+
+                        await new Promise(resolve => setTimeout(resolve, 2500));
+
+                    } // end CERF siting demonstration for year 2030
+
+                    // Show power-plant icons after highlight completes
+                    pptDataSource.show = true;
+
+                    // Remove all NLC polygons that were filtered/displayed during the highlight
+                    await new Promise(r => setTimeout(r, 1000));
+
+                    // Wait one second, then clean up both rectangles before moving on
+                    ['randomRectHighlight', 'showRectMask','showRectOutline']
+                        .forEach(id => {
+                        const e = viewerInstance.entities.getById(id);
+                        if (e) viewerInstance.entities.remove(e);
+                    });
+                    // Also remove the NLC colorbar and its labels when the outline is removed
+                    ['nlcColorbar', 'nlcColorbarLower', 'nlcColorbarHigher'].forEach(domId => {
+                        const el = document.getElementById(domId);
+                        if (el && el.parentNode) {
+                            el.parentNode.removeChild(el);
+                        }
+                    });
+
+                    if (year === 2030) {
+                        nlcDsForAnim.show = false;
+                    
+
+                        const oldLabel4 = viewerInstance.entities.getById('showRectLabel');
+                        if (oldLabel4) {
+                            viewerInstance.entities.remove(oldLabel4);
+                        }
+                    }
+
+                    // Apply styling to billboards
+                    pptDataSource.entities.values.forEach(function(entity) {
+
+                        if (Cesium.defined(entity.billboard)) {
+                            // Lift each icon to a fixed 5000 m altitude
+                            const origPos = entity.position.getValue(Cesium.JulianDate.now());
+                            const carto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(origPos);
+                            const lon = Cesium.Math.toDegrees(carto.longitude);
+                            const lat = Cesium.Math.toDegrees(carto.latitude);
+                            const height = 5000; // meters above ellipsoid
+                            entity.position = new Cesium.ConstantPositionProperty(
+                                Cesium.Cartesian3.fromDegrees(lon, lat, height)
+                            );
+                            // Style the billboard
+                            entity.billboard.image = iconBase;
+                            entity.billboard.heightReference = Cesium.HeightReference.NONE;
+                            entity.billboard.verticalOrigin = Cesium.VerticalOrigin.CENTER;
+                            entity.billboard.horizontalOrigin = Cesium.HorizontalOrigin.CENTER;
+                            entity.billboard.scale = 0.025; // icon size
+                            entity.billboard.disableDepthTestDistance = Number.POSITIVE_INFINITY;
+                        } else if (Cesium.defined(entity.point)) {
+                            entity.point.pixelSize = 8;
+                            entity.point.color = Cesium.Color.ORANGE;
+                            entity.point.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
+                        } else {
+                            console.warn(`Entity in ${year} layer is not a billboard or point: ${entity.id || year}`);
+                        }
+                    });
+
+                    
+                    
+                    // Once all entities have been restyled with the custom icon, show the layer.
+                    pptDataSource.show = true;
+
+                    // add delay in here to let the icon show
+                    await new Promise(resolve => setTimeout(resolve, 2500));
+
+            // Remove the NLC layer data source now that we’re done with this year
+            viewerInstance.dataSources.getByName(`${year}_nlc`).forEach(ds => {
+                viewerInstance.dataSources.remove(ds, true);
             });
-            // console.log(`Finished applying styles to ${year} entities.`);
 
-            // Once all entities have been restyled with the custom icon, show the layer.
-            pptDataSource.show = true;
-
-            // add delay in here to let the icon show
-            await new Promise(resolve => setTimeout(resolve, 2500));
-                removeLegendItem(`${year}_nlc`);
-                removeLegendItem(layerId);
-                // Remove the NLC layer data source now that we’re done with this year
-                viewerInstance.dataSources.getByName(`${year}_nlc`).forEach(ds => {
-                    viewerInstance.dataSources.remove(ds, true);
-                });
-
-
-            } else {
-                // FAILURE: Current year FAILED to load
-                console.log(`Layer ${layerId} failed to load (likely missing file). Previous layer remains visible.`);
-                // Legend item remains visible. Previous layer remains visible.
-                // Do NOT update previousPptDataSource
-                removeLegendItem(layerId); // Remove legend item if load failed
+            // If the bottom legend has no items, remove its title
+            if (bottomLegendItemsContainer && bottomLegendItemsContainer.children.length === 0) {
+                bottomLegendTitleElement.innerHTML = '';
             }
+
+                } else {
+                    // FAILURE: Current year FAILED to load
+                    console.log(`Layer ${layerId} failed to load (likely missing file). Previous layer remains visible.`);
+                    // Legend item remains visible. Previous layer remains visible.
+                    // Do NOT update previousPptDataSource
+                    removeLegendItem(layerId); // Remove legend item if load failed
+                }
+            
 
         } // End of year loop
+
+        // remove bottom legend title and items here
+        // Clear bottom legend title and all its items
+        if (bottomLegendTitleElement) {
+            bottomLegendTitleElement.innerHTML = '';
+        }
+        if (bottomLegendItemsContainer) {
+            while (bottomLegendItemsContainer.firstChild) {
+                bottomLegendItemsContainer.removeChild(bottomLegendItemsContainer.firstChild);
+            }
+        }
 
         // ---------------------------------------------
         //  EXTRACT TARGET POWER PLANTS
@@ -1510,18 +1902,19 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
 
     } // end add power plants
 
-    asdf;
-
     // ---------------------------------------------
     //  BUFFERED CIRCLE OF INTEREST
     // ---------------------------------------------
 
     await new Promise(resolve => setTimeout(resolve, 2500));
 
+    // Update main application title in legend
+    appTitleElement.textContent = 'Explore Sited Plant';
+
     // Add buffer circle to legend
     addLegendItem(
         'powerPlantBuffer',
-        'Explore Power Plant',
+        'Plant of Interest',
     '<div class="legend-symbol" style="width:20px; height:20px; border-radius:50%; background-color:rgba(246, 255, 0, 0.98); border:2px solid green;"></div>'
     );
 
@@ -1591,7 +1984,6 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     // FlY TO CUSTOM LOCATION
     // --------------------------------------------------------------------------------
 
-    changeLegendTitleFadeIn("Explore Individual Plant");
     // Remove the buffer entry from the legend before flying
 
     removeLegendItem('powerPlantBuffer');
@@ -1711,7 +2103,8 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     // --------------------------------------------------------------------------------
     await new Promise(resolve => setTimeout(resolve, 2500));
 
-    changeLegendTitleFadeIn("Connect to Pipeline");
+    appTitleElement.textContent = 'Connect to Infrastructure';
+
 
     const gasPipelineConnector = viewer.entities.add({
         name: `Gas Pipeline Connector`, // Simplified name maybe
@@ -1742,8 +2135,6 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     // --------------------------------------------------------------------------------
     await new Promise(resolve => setTimeout(resolve, 2500));
 
-    changeLegendTitleFadeIn("Connect to Grid");
-    
     // // Now remove suitability layers from the legend
     // clearSpecificLegendItems(suitabilityLayerIds);
 
@@ -1836,7 +2227,17 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
         console.error("Cesium viewer instance is not available. Cannot add polyline.");
     }
 
-await new Promise(resolve => setTimeout(resolve, 3500));
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
+    appTitleElement.textContent = 'Siting Completed';
+
+    // Clear all legend content after completion
+    document.getElementById('legendTitleContainer').innerHTML = '';
+    document.getElementById('primaryLegendItemsContainer').innerHTML = '';
+    document.getElementById('alternativeLegendTitleContainer').innerHTML = '';
+    document.getElementById('alternativeLegendItemsContainer').innerHTML = '';
+    document.getElementById('bottomLegendTitleContainer').innerHTML = '';
+    document.getElementById('bottomLegendItemsContainer').innerHTML = '';
 
 
     // Add a persistent credits popup
