@@ -26,13 +26,11 @@ let addBuffer = true;
 let useCameraFly = true;
 
 // Time delay after a suitability layer is added
-let suitabilityDelayMs = 100; // 2000
+let suitabilityDelayMs = 2000; // 2000
 
-let pipelineWaitMs = 100; // 2500
-let transmissionlineWaitMs = 100; // 2500
+let pipelineWaitMs = 2500; // 2500
+let transmissionlineWaitMs = 2500; // 2500
 
-// Directly load on the ROI 
-let goDirectlyToRoi = false;
 
 
 // --- UI Elements (Grabbed once) ---
@@ -311,6 +309,7 @@ const pulsatingGlowMaterialSlow = new Cesium.PolylineGlowMaterialProperty({
 // --- Core CesiumJS Initialization (Async Function) ---
 async function startCesium() {
     try {
+
         // console.log("Initializing Cesium Viewer...");
 
         viewer = new Cesium.Viewer('cesiumContainer', {
@@ -708,6 +707,7 @@ async function animateRandomHighlight(viewerInstance, nlcDs, pptDs, durationSeco
     // Add NLC colorbar overlay when NLC label appears
     const colorbarDiv = document.createElement('div');
     colorbarDiv.id = 'nlcColorbar';
+
     // Compute midpoint of the rectangle’s bottom edge
     const midLon = (showRect.west + showRect.east) / 2;
     const midLat = showRect.south;
@@ -1137,8 +1137,10 @@ async function addNlcLayer(year) {
     const nlcDs = await Cesium.GeoJsonDataSource.load(url, {
         clampToGround: true
     });
+
     nlcDs.name = `${year}_nlc`;
     await viewer.dataSources.add(nlcDs);
+
     // Keep NLC layer hidden on map
     nlcDs.show = false;
 
@@ -1169,6 +1171,7 @@ async function addNlcLayer(year) {
     
 }
 
+
 // --- Main Animation Sequence ---
 async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     // NOTE: This sequence targets the user-confirmed ROI: Lon ~-109.9, Lat ~41.5 (WY/UT/CO area)
@@ -1176,10 +1179,8 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
         console.error("Viewer instance or Legend Title Element not available for runSequence.");
         return;
     }
-    // console.log("Starting sequence...");
 
-
-        // add delay in here to let the icon show
+    // add delay in here to let the icon show
         await new Promise(resolve => setTimeout(resolve, 500));
 
         // show wyoming
@@ -1525,6 +1526,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     if (addPowerPlantLayers) {
         // Define iconBase early so placeholders can use it
         const iconBase = './data/markers/round_gas_icon.png';
+
         // Set primary legend title for unsuitable areas
         if (legendTitleElement) {
             legendTitleElement.innerHTML = 
@@ -1540,64 +1542,61 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
         if (bottomLegendTitleElement) {
             bottomLegendTitleElement.innerHTML = '<span style="vertical-align:middle;">Projected Gas Plant Siting</span>';
         }
-        // Insert placeholder under the new bottom legend title
-        if (bottomLegendItemsContainer && bottomLegendItemsContainer.children.length === 0) {
-            const placeholder = document.createElement('div');
-            placeholder.id = 'legend-item-placeholder';
-            placeholder.classList.add('power-plant-legend-item', 'legend-placeholder');
-            placeholder.innerHTML = `
-                <img src="${iconBase}" class="legend-symbol-img"
-                    style="visibility:hidden; width:30px; height:30px;">
-                <span style="visibility:hidden; font-size:30px;">&nbsp;</span>
-            `;
-            bottomLegendItemsContainer.appendChild(placeholder);
-        }
+
         // Clear old suitability legend entries
         clearSpecificLegendItems(suitabilityLayerIds);
-        // Short pause after clearing legend
-        await new Promise(resolve => setTimeout(resolve, 1500)); 
+        
 
         // --- Load Power Plant Layers (Loop through years) ---
-        // console.log("Loading power plant layers...");
         const powerPlantYears = [2030, 2035, 2040, 2045, 2050];
-        let previousNlcYear = null;
+
         // Track previous power plant legend to delay its removal until new one appears
         let previousPlantLayerId = null;
 
         for (const year of powerPlantYears) {
 
-            // 1) If nothing is in the bottom legend yet, insert an invisible placeholder
-            if (bottomLegendItemsContainer && bottomLegendItemsContainer.children.length === 0) {
-                const placeholder = document.createElement('div');
-                placeholder.id = 'legend-item-placeholder';
-                placeholder.classList.add('power-plant-legend-item', 'legend-placeholder');
-                placeholder.innerHTML = `
-                <img src="${iconBase}" class="legend-symbol-img"
-                    style="visibility:hidden; width:30px; height:30px;">
-                <span style="visibility:hidden; font-size:30px;">&nbsp;</span>
-                `;
-                bottomLegendItemsContainer.appendChild(placeholder);
+            // For 2030, immediately add the real legend entry instead of a placeholder
+            if (year === 2030) {
+                const layerId2030 = `${year}_gas_plants_clipped`;
+                const legendTitle2030 = `${year}`;
+                const legendSymbol2030 = `
+                    <img
+                    src="${iconBase}"
+                    class="legend-ppt-symbol-img"
+                    alt="2030 Gas Plant"
+                    style="width:30px; height:30px;"
+                    >
+              `;
+                // Create and append the 2030 legend item
+                addLegendItem(layerId2030, legendTitle2030, legendSymbol2030);
+
+                const item2030 = legendItems[layerId2030];
+
+                if (item2030 && bottomLegendItemsContainer) {
+                    bottomLegendItemsContainer.appendChild(item2030);
+                }
+
             }
-                
+            // For all other years, if nothing is in the bottom legend yet, show invisible placeholder
+            else {
+                if (bottomLegendItemsContainer && bottomLegendItemsContainer.children.length === 0) {
+                    const placeholder = document.createElement('div');
+                    placeholder.id = 'legend-item-placeholder';
+                    placeholder.classList.add('power-plant-legend-item', 'legend-placeholder');
+                    placeholder.innerHTML = `
+                        <img src="${iconBase}" class="legend-symbol-img"
+                            style="visibility:hidden; width:30px; height:30px;">
+                        <span style="visibility:hidden; font-size:30px;">&nbsp;</span>
+                    `;
+                    bottomLegendItemsContainer.appendChild(placeholder);
+                }
+            }
+                    
                 let nlcDsForAnim;
     
                 // Example usage: add the 2030 NLC layer
                 await addNlcLayer(year);
 
-                // Brief pause to let the new NLC layer render before removing the old one
-                // await new Promise(resolve => setTimeout(resolve, 1000));
-
-                // Now remove the old NLC layer to avoid a flashing gap
-                if (previousNlcYear !== null) {
-                    removeLegendItem(`${previousNlcYear}_nlc`);
-                    viewerInstance.dataSources
-                        .getByName(`${previousNlcYear}_nlc`)
-                        .forEach(ds => viewerInstance.dataSources.remove(ds, true));
-                }
-                previousNlcYear = year;
-
-                // Wait before adding the power plant layer
-                await new Promise(resolve => setTimeout(resolve, 1500));
 
                 const filename = `./data/geojson/${year}_gas_plants_clipped.geojson`;
                 const layerId = `${year}_gas_plants_clipped`;
@@ -1610,6 +1609,8 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
 
                 // Add legend item for power plant layer and move to bottom legend
                 addLegendItem(layerId, legendTitle, legendSymbol);
+
+
                 // Move this power-plant legend entry into the bottom legend
                 const mainItem = legendItems[layerId];
                 if (mainItem && bottomLegendItemsContainer) {
@@ -1770,7 +1771,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
                     pptDataSource.show = true;
 
                     // Remove all NLC polygons that were filtered/displayed during the highlight
-                    await new Promise(r => setTimeout(r, 1000));
+                    // await new Promise(r => setTimeout(r, 1000));
 
                     // Wait one second, then clean up both rectangles before moving on
                     ['randomRectHighlight', 'showRectMask','showRectOutline']
@@ -1911,12 +1912,22 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     // Update main application title in legend
     appTitleElement.textContent = 'Explore Sited Plant';
 
+    // Generate a bottomLegendTitleContainer 
+    if (bottomLegendTitleElement) {
+        bottomLegendTitleElement.textContent = 'Explore Individual Plant';
+    }
+
     // Add buffer circle to legend
     addLegendItem(
         'powerPlantBuffer',
         'Plant of Interest',
-    '<div class="legend-symbol" style="width:20px; height:20px; border-radius:50%; background-color:rgba(246, 255, 0, 0.98); border:2px solid green;"></div>'
+        '<div class="legend-symbol" style="width:20px; height:20px; border-radius:50%; background-color:rgba(246, 255, 0, 0.98); border:2px solid green;"></div>'
     );
+
+    // Move buffer legend item into bottom legend container
+    if (bottomLegendItemsContainer && legendItems['powerPlantBuffer']) {
+        bottomLegendItemsContainer.appendChild(legendItems['powerPlantBuffer']);
+    }
 
     // Add a 2 km red buffer circle around the target power plant
     let bufferLon, bufferLat;
@@ -1978,7 +1989,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     .filter(e => typeof e.id === 'string' && e.id.startsWith('transmissionTowerThree'))
     .forEach(e => { e.show = true; });
 
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise(resolve => setTimeout(resolve, 3500));
 
     // --------------------------------------------------------------------------------
     // FlY TO CUSTOM LOCATION
@@ -1987,6 +1998,8 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     // Remove the buffer entry from the legend before flying
 
     removeLegendItem('powerPlantBuffer');
+    // Remove bottom legend title
+    bottomLegendTitleElement.textContent = '';
 
     // Remove the buffer circle before flying
     viewerInstance.entities.values
@@ -2251,11 +2264,10 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     </br>
     <h5 style="margin:0;  color:white;">
         How to cite:</br>
-        Mongird, K., Vernon, C. R., Thurber, T., & Rice, J. S. (2025, April 20). CERF Visualization: Projected locations of new natural gas combined cycle (recirculating cooling) power plants in Wyoming, USA (2020-2050).  https://doi.org/10.57931/2001010
-    </h5>
+        Vernon, C. R., Mongird, K., Thurber, T., & Rice, J. S. (2025). CERF Visualization: Projected locations of new natural gas combined cycle power plants (with recirculating cooling) in Wyoming, USA (2020-2050) (Version v1). MSD-LIVE Data Repository. https://doi.org/10.57931/2562770    </h5>
     </br>
     <p style="margin:8px 0 0; font-weight:400; font-size:12px; color:rgba(255,255,255,0.8);">
-        Background Satellite Imagery: </br>Data available from the U.S. Geological Survey, © CGIAR-CSI, Produced using Copernicus data and information funded by the European Union - EU-DEM layers, Data available from Land Information New Zealand, Data available from data.gov.uk, Data courtesy Geoscience Australia.
+        Background Satellite Imagery: </br>Source: Esri, Maxar, GeoEye, Earthstar Geographics, CNES/Airbus DS, USDA, USGS, AeroGRID, IGN, and the GIS User Community. Data available from the U.S. Geological Survey, © CGIAR-CSI, Produced using Copernicus data and information funded by the European Union - EU-DEM layers, Data available from Land Information New Zealand, Data available from data.gov.uk, Data courtesy Geoscience Australia.
     </p>
   `;
     creditsPopup.style.cssText = `
