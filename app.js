@@ -10,6 +10,9 @@ Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOi
 
 // --- Global variables ---
 let viewer;
+let mediaRecorder;
+let recordedChunks = [];
+let recordingActive = false;
 let legendTitleElement; // Variable to hold the legend title DOM element
 let appTitleElement;
 
@@ -278,18 +281,19 @@ const pulsatingGlowMaterialAqua = new Cesium.PolylineGlowMaterialProperty({
     color: Cesium.Color.AQUA.withAlpha(0.7)
 });
 
-const pulsatingGlowMaterialBlue = new Cesium.PolylineGlowMaterialProperty({
+
+const pulsatingGlowMaterialPurple = new Cesium.PolylineGlowMaterialProperty({
     glowPower: new Cesium.CallbackProperty(function(time, result) {
         // Use performance.now() for continuous time base, independent of Cesium clock state
         const seconds = performance.now() / 2000.0;
-        const minGlow = 0.2;
+        const minGlow = 0.4;
         const maxGlow = 1.0; // Max glow from your example
         // Adjust frequency (e.g., * Math.PI * 2 makes it cycle every 1 second)
         const oscillation = (Math.sin(seconds * Math.PI * 2) + 1) / 2; // Map sin (-1 to 1) -> (0 to 1)
         return minGlow + oscillation * (maxGlow - minGlow);
     }, false), // isConstant = false -> evaluate every frame
     taperPower: 1.0, // Consistent glow power along the line
-    color: Cesium.Color.BLUE.withAlpha(0.7) // Color from your example
+    color: Cesium.Color.fromCssColorString('#5D3A9B').withAlpha(0.7) // Custom purple color
 });
 
 const pulsatingGlowMaterialSlow = new Cesium.PolylineGlowMaterialProperty({
@@ -629,20 +633,32 @@ async function startCesium() {
         const roiLat = 41.469939;
         const roiHeight = 150055; // 132000; // in meters
 
+        // Grab the record map checkbox
+        const recordMapCheckbox = document.getElementById('recordMapCheckbox');
+
         // Sequence Button Listener
-sequenceButton.addEventListener("click", async () => {
-    // Remove intro popup before starting sequence
-    const intro = document.getElementById('introPopup');
-    if (intro) {
-        intro.parentNode.removeChild(intro);
-    }
-    console.log("Run Sequence button clicked.");
+        sequenceButton.addEventListener("click", async () => {
+            // Remove intro popup before starting sequence
+            const intro = document.getElementById('introPopup');
+            if (intro) {
+                intro.parentNode.removeChild(intro);
+            }
+            console.log("Run Sequence button clicked.");
             try {
+                // Start recording if checkbox checked and not already recording
+                if (recordMapCheckbox && recordMapCheckbox.checked && !recordingActive) {
+                    startRecording();
+                }
                 // Clear sequence graphics if needed
                 clearSequenceGraphics(viewer);
 
                 // Run the sequence: show Wyoming first, then fly to ROI
                 await runSequence(viewer, roiLon, roiLat, roiHeight);
+
+                // Stop recording if it was started
+                if (recordingActive) {
+                    stopRecording();
+                }
             } catch (error) {
                 console.error("Error during runSequence:", error);
             }
@@ -1272,7 +1288,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
 
         // Update title
         changeLegendTitleFadeIn(
-            "Unsuitable Gas Plant Areas",
+            "Unsuitable Natural Gas</br>Power Plant Areas",
             '<div class="legend-symbol" style="background-color:rgba(0,0,0,0.5); border:1px solid #fff; display:inline-block; margin-right:8px; vertical-align:middle;"></div>'
         );
 
@@ -1440,11 +1456,55 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
         console.error("Alternative legend containers not found.");
     }
 
+
+    // --------------------------------------------------------------------------------
+    // ADD Suitable Cooling Water Sources LAYER
+    // --------------------------------------------------------------------------------
+
+    // Update main application title in legend
+    appTitleElement.textContent = 'Power Plant Infrastructure';
+
+
+    let addWaterInfrastructure = true;
+
+    if (addWaterInfrastructure){
+
+        // Add gas pipelines lines layer to the legend with a dotted symbol
+        if (alternativeLegendItemsContainer) {
+            const item = document.createElement('div');
+            item.className = 'legend-item';
+            item.innerHTML = `
+                <div class="legend-symbol" style="width:20px; height:4px; background-color:#ADD8E6; display:inline-block; margin-right:8px; vertical-align:middle;"></div>
+                <span style="vertical-align:middle;">Suitable Cooling Water</br>Sources (>= 70 MGD)</br></span>
+            `;
+            alternativeLegendItemsContainer.appendChild(item);
+        } else {
+            console.error("Alternative legend container not found for pipelines.");
+        }
+        // Load all gas pipelines clamped to ground
+        const pipelineDs = await Cesium.GeoJsonDataSource.load('./data/geojson/water_surface_flow.geojson', {
+            clampToGround: true
+        });
+        pipelineDs.name = 'surface_water_flow';
+        await viewer.dataSources.add(pipelineDs);
+        pipelineDs.entities.values.forEach(entity => {
+            if (entity.polyline) {
+
+                entity.polyline.width = 4;
+
+                entity.polyline.material = Cesium.Color.LIGHTSKYBLUE; // Cesium.Color.fromCssColorString('#5D3A9B');// Cesium.Color.DARKBLUE;
+
+                entity.polyline.clampToGround = true;
+
+            }
+        });
+    }
+
+    await new Promise(resolve => setTimeout(resolve, pipelineWaitMs));
+
     // --------------------------------------------------------------------------------
     // ADD GAS PIPELINES LAYER
     // --------------------------------------------------------------------------------
-    // Update main application title in legend
-    appTitleElement.textContent = 'Power Plant Infrastructure';
 
     if (addGasPipelines){
 
@@ -1454,7 +1514,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             item.className = 'legend-item';
             item.innerHTML = `
                 <div class="legend-symbol" style="width:20px; height:0px; border-bottom:2px dashed aqua; display:inline-block; margin-right:8px; vertical-align:middle;"></div>
-                <span style="vertical-align:middle;">Gas Pipelines</br></span>
+                <span style="vertical-align:middle;">Natural Gas Pipelines</br></span>
             `;
             alternativeLegendItemsContainer.appendChild(item);
         } else {
@@ -1492,7 +1552,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             item.id = domId;
             item.innerHTML = `
                 <div class="legend-symbol" style="background-color:orange; width:20px; height:2px;"></div>
-                <span style="vertical-align:middle;">Transmission Lines</span>
+                <span style="vertical-align:middle;">Transmission Lines (>=115 kV)</span>
             `;
             alternativeLegendItemsContainer.appendChild(item);
             legendItems['transmission_clipped'] = item;
@@ -1515,6 +1575,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     }
 
     await new Promise(resolve => setTimeout(resolve, transmissionlineWaitMs));
+    
 
     // --------------------------------------------------------------------------------
     // ADD POWER PLANT LAYERS
@@ -1534,13 +1595,13 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
               'style="background-color:rgba(0,0,0,0.5); ' +
               'border:1px solid #fff; display:inline-block; ' +
               'margin-right:8px; vertical-align:middle;"></div>' +
-              '<span style="vertical-align:middle;">Unsuitable Gas Plant Areas</span>';
+              '<span style="vertical-align:middle;">Unsuitable Natural Gas</br>Power Plant Areas</span>';
             // Add extra top margin to separate from previous content
             legendTitleElement.style.marginTop = '28px';
         }
         // Set bottom legend title for power plant phase
         if (bottomLegendTitleElement) {
-            bottomLegendTitleElement.innerHTML = '<span style="vertical-align:middle;">Projected Gas Plant Siting</span>';
+            bottomLegendTitleElement.innerHTML = '<span style="vertical-align:middle;">Projected Natural Gas</br>Power Plant Siting</span>';
         }
 
         // Clear old suitability legend entries
@@ -2109,8 +2170,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
           700
         );
       }
-
-
+      
     // --------------------------------------------------------------------------------
     // ADD GAS PIPELINE CONNECTOR
     // --------------------------------------------------------------------------------
@@ -2252,7 +2312,6 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     document.getElementById('bottomLegendTitleContainer').innerHTML = '';
     document.getElementById('bottomLegendItemsContainer').innerHTML = '';
 
-
     // Add a persistent credits popup
     const creditsPopup = document.createElement('div');
     creditsPopup.id = 'creditsPopup';
@@ -2313,3 +2372,48 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 });
+
+// --- Map Recording Functions ---
+function startRecording() {
+    const cesiumContainer = document.getElementById('cesiumContainer');
+    const stream = cesiumContainer.captureStream(30); // 30 FPS
+    mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' });
+    recordedChunks = [];
+
+    mediaRecorder.ondataavailable = event => {
+        if (event.data.size > 0) {
+            recordedChunks.push(event.data);
+        }
+    };
+
+    mediaRecorder.onstop = saveRecording;
+
+    mediaRecorder.start();
+    console.log("Recording started.");
+    recordingActive = true;
+}
+
+function stopRecording() {
+    if (mediaRecorder && recordingActive) {
+        mediaRecorder.stop();
+        console.log("Recording stopped.");
+        recordingActive = false;
+    }
+}
+
+function saveRecording() {
+    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.href = url;
+    a.download = 'map_sequence_recording.webm';
+    document.body.appendChild(a);
+    a.click();
+
+    setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }, 100);
+}
