@@ -13,6 +13,8 @@ let viewer;
 let mediaRecorder;
 let recordedChunks = [];
 let recordingActive = false;
+
+
 let legendTitleElement; // Variable to hold the legend title DOM element
 let appTitleElement;
 
@@ -524,7 +526,7 @@ async function startCesium() {
             document.getElementById("heightValue").textContent = currentHeight;
             
             // Update the center coordinates of the view
-            const canvas = viewer.scene.canvas;
+            const canvas = viewer.canvas;
             const centerScreen = new Cesium.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
             const centerCartesian = viewer.scene.camera.pickEllipsoid(centerScreen, Cesium.Ellipsoid.WGS84);
             
@@ -612,7 +614,7 @@ async function startCesium() {
             document.getElementById("heightValue").textContent = currentHeight;
             
             // --- Update the Center Coordinates ---
-            const canvas = viewer.scene.canvas;
+            const canvas = viewer.canvas;
             const centerScreen = new Cesium.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
             const centerCartesian = viewer.scene.camera.pickEllipsoid(centerScreen, Cesium.Ellipsoid.WGS84);
             
@@ -1474,7 +1476,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             const item = document.createElement('div');
             item.className = 'legend-item';
             item.innerHTML = `
-                <div class="legend-symbol" style="width:20px; height:4px; background-color:#ADD8E6; display:inline-block; margin-right:8px; vertical-align:middle;"></div>
+                <div class="legend-symbol" style="width:24px; height:8px; background-color:#ADD8E6; display:inline-block; margin-right:8px; vertical-align:middle;border:none; outline:none; opacity:1"></div>
                 <span style="vertical-align:middle;">Suitable Cooling Water</br>Sources (>= 70 MGD)</br></span>
             `;
             alternativeLegendItemsContainer.appendChild(item);
@@ -1513,7 +1515,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             const item = document.createElement('div');
             item.className = 'legend-item';
             item.innerHTML = `
-                <div class="legend-symbol" style="width:20px; height:0px; border-bottom:2px dashed aqua; display:inline-block; margin-right:8px; vertical-align:middle;"></div>
+                <div class="legend-symbol" style="width:22px; height:0px; border: none; border-bottom: 4px dashed aqua; background: transparent; opacity: 1;"></div>
                 <span style="vertical-align:middle;">Natural Gas Pipelines</br></span>
             `;
             alternativeLegendItemsContainer.appendChild(item);
@@ -1551,7 +1553,7 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             const domId = 'legend-item-transmission_clipped';
             item.id = domId;
             item.innerHTML = `
-                <div class="legend-symbol" style="background-color:orange; width:20px; height:2px;"></div>
+                <div class="legend-symbol" style="background-color:orange; width:22px; height:4px; border: none; outline: none; opacity: 1;"></div>
                 <span style="vertical-align:middle;">Transmission Lines (>=115 kV)</span>
             `;
             alternativeLegendItemsContainer.appendChild(item);
