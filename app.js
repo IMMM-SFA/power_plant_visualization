@@ -1484,12 +1484,12 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
             console.error("Alternative legend container not found for pipelines.");
         }
         // Load all gas pipelines clamped to ground
-        const pipelineDs = await Cesium.GeoJsonDataSource.load('./data/geojson/water_surface_flow.geojson', {
+        const waterIDs = await Cesium.GeoJsonDataSource.load('./data/geojson/water_surface_flow.geojson', {
             clampToGround: true
         });
-        pipelineDs.name = 'surface_water_flow';
-        await viewer.dataSources.add(pipelineDs);
-        pipelineDs.entities.values.forEach(entity => {
+        waterIDs.name = 'surface_water_flow';
+        await viewer.dataSources.add(waterIDs);
+        waterIDs.entities.values.forEach(entity => {
             if (entity.polyline) {
 
                 entity.polyline.width = 4;
@@ -2176,6 +2176,14 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
     // --------------------------------------------------------------------------------
     // ADD GAS PIPELINE CONNECTOR
     // --------------------------------------------------------------------------------
+    
+    // remove the suitable water legend item here
+    Array.from(alternativeLegendItemsContainer.querySelectorAll('.legend-item')).forEach(item => {
+      if (item.textContent.includes('Suitable Cooling Water')) {
+        alternativeLegendItemsContainer.removeChild(item);
+      }
+    });
+
     await new Promise(resolve => setTimeout(resolve, 2500));
 
     appTitleElement.textContent = 'Connect to Infrastructure';
@@ -2193,12 +2201,15 @@ async function runSequence(viewerInstance, baseLon, baseLat, baseHeight) {
                     2200 
                 ]
             ),
-            width: 10,
+            width: 7,
             // material: pulsatingGlowMaterialBlue, // Use the shared material
             heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
             // clampToGround: false,
             // width: 6,
-            material: pulsatingGlowMaterialAqua,
+            material: new Cesium.PolylineDashMaterialProperty({
+                color: Cesium.Color.AQUA,
+                dashLength: 16.0
+            }),
             clampToGround: false,
             arcType: Cesium.ArcType.GEODESIC
         }
